@@ -1,0 +1,116 @@
+name: Release notify (reusable)
+
+# Reusable workflow: creates a GitHub Release with notes from `cz changelog`
+# and, when a SLACK_WEBHOOK_URL secret is provided, posts to Slack.
+#
+# Caller example:
+#
+#   jobs:
+#     release-notify:
+#       uses: your-org/release-toolkit/.github/workflows/release-notify.yml@v1
+#       with:
+#         package_dir: pylon_client
+#         tag_prefix: client-v
+#         python_version: '3.11'
+#       secrets:
+#         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}  # optional
+
+on:
+  workflow_call:
+    inputs:
+      package_dir:
+        description: Path to the package directory containing pyproject.toml.
+        required: true
+        type: string
+      tag_prefix:
+        description: Tag prefix that precedes the version (e.g. "client-v" or "v").
+        required: true
+        type: string
+      python_version:
+        description: Python version used for cz changelog rendering.
+        required: false
+        type: string
+        default: '3.11'
+      slack_message_prefix:
+        description: Prefix for the Slack message (e.g. "Released").
+        required: false
+        type: string
+        default: 'Released'
+    secrets:
+      SLACK_WEBHOOK_URL:
+        description: Optional Slack incoming-webhook URL. When omitted, Slack notification is skipped.
+        required: false
+
+jobs:
+  github-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: ${{ inputs.package_dir }}
+    outputs:
+      version: ${{ steps.notes.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install dev dependencies
+        run: uv sync --group dev
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#${{ inputs.tag_prefix }}}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          uv run cz changelog "$VERSION" --dry-run > "$GITHUB_WORKSPACE/release_notes.md"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: ${{ github.workspace }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release_notes.md
+
+  notify-slack:
+    runs-on: ubuntu-latest
+    needs: github-release
+    if: ${{ github.event_name == 'push' }}
+    steps:
+      - name: Check Slack webhook availability
+        id: probe
+        env:
+          WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$WEBHOOK" ]; then
+            echo "send=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "send=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SLACK_WEBHOOK_URL not provided; skipping Slack notification."
+          fi
+
+      - name: Send to Slack
+        if: ${{ steps.probe.outputs.send == 'true' }}
+        uses: slackapi/slack-github-action@v2.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "${{ inputs.slack_message_prefix }} ${{ github.ref_name }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "🚀 ${{ inputs.slack_message_prefix }} *${{ github.ref_name }}* — <${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}|view changelog>"
+                  }
+                }
+              ]
+            }

@@ -1,0 +1,38 @@
+[project]
+name = "demo-client"
+dynamic = ["version"]
+description = "Example monorepo package using release-toolkit"
+requires-python = ">=3.11"
+
+[dependency-groups]
+dev = [
+    "commitizen>=4.13",
+    "cz-release-toolkit",
+    "nox",
+]
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+tag-pattern = "^client-v(?P<version>.*)$"
+fallback-version = "0.0.0"
+raw-options.root = ".."
+raw-options.git_describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--match", "client-v*"]
+
+[tool.commitizen]
+name = "impacts_cz"
+version_provider = "scm"
+annotated_tag = true
+tag_format = "client-v$version"
+ignored_tag_formats = ["service-v$version", "common-v$version"]
+changelog_file = "CHANGELOG.md"
+changelog_merge_prerelease = true
+update_changelog_on_bump = true
+bump_message = "chore: bump demo-client $current_version -> $new_version"
+
+# release-toolkit additions:
+impacts = ["client", "commons"]
+# impacts_footer = "Impacts"  # default

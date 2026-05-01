@@ -1,0 +1,45 @@
+[project]
+name = "cz-release-toolkit"
+version = "0.1.0"
+description = "Reusable Commitizen-based release tooling for monorepo and single-package projects"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{name = "Reef Technologies", email = "opensource@reef.pl"}]
+license = {text = "MIT"}
+dependencies = ["commitizen>=4.13"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-cov",
+    "ruff",
+    "pyright",
+    "nox",
+]
+
+[project.scripts]
+cz-release-toolkit = "release_toolkit.helpers:main"
+
+[project.entry-points."commitizen.plugin"]
+impacts_cz = "release_toolkit.cz_plugin:ImpactsCz"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/release_toolkit"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+exclude = ["noxfile.py", ".nox", ".venv", "examples"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

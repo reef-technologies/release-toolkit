@@ -1,0 +1,22 @@
+# Example caller workflow placed in .github/workflows/cd-client.yml of the consumer repo.
+name: CD Client
+
+on:
+  push:
+    tags:
+      - 'client-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    uses: your-org/release-toolkit/.github/workflows/release-notify.yml@v1
+    with:
+      package_dir: pylon_client
+      tag_prefix: client-v
+      python_version: '3.11'
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}  # omit this line to disable Slack
+    permissions:
+      contents: write

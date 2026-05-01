@@ -1,0 +1,30 @@
+[project]
+name = "demo"
+dynamic = ["version"]
+description = "Example single-package repo using release-toolkit"
+requires-python = ">=3.11"
+
+[dependency-groups]
+dev = [
+    "commitizen>=4.13",
+    "cz-release-toolkit",
+    "nox",
+]
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+tag-pattern = "^v(?P<version>.*)$"
+fallback-version = "0.0.0"
+
+[tool.commitizen]
+name = "impacts_cz"
+version_provider = "scm"
+annotated_tag = true
+tag_format = "v$version"
+changelog_file = "CHANGELOG.md"
+update_changelog_on_bump = true
+# no `impacts` -> no per-package filtering
