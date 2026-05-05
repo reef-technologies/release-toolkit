@@ -21,6 +21,7 @@ from release_toolkit.installer import (
     InstallStatus,
     install_into_document,
 )
+from release_toolkit.release_runner import ReleaseAborted, run_release
 from release_toolkit.workflow_installer import (
     WorkflowConfig,
     is_release_notify_workflow,
@@ -32,6 +33,22 @@ def cmd_increment(args: argparse.Namespace) -> None:
     """Print the changelog-filtered Commitizen increment for ``args.config``."""
     increment = find_filtered_increment(load_config(args.config))
     print(increment or NO_INCREMENT)
+
+
+def cmd_release(args: argparse.Namespace) -> None:
+    """Run the standard release workflow; exit 1 with a stderr message on abort."""
+    bump_args = list(args.bump_args)
+    if bump_args and bump_args[0] == "--":
+        bump_args = bump_args[1:]
+    try:
+        run_release(
+            master_branch=args.master_branch,
+            use_filter=args.use_filter,
+            bump_args=tuple(bump_args),
+        )
+    except ReleaseAborted as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_init_single(args: argparse.Namespace) -> None:
@@ -220,6 +237,34 @@ def main() -> None:
     )
     monorepo_parser.add_argument("args", nargs="+", metavar="PATH NAME")
     monorepo_parser.set_defaults(func=lambda a: cmd_init_monorepo(a, monorepo_parser))
+
+    release_parser = subparsers.add_parser(
+        "release",
+        help="Run the standard release workflow (uv sync -> checks -> cz bump -> push).",
+    )
+    release_parser.add_argument("--master-branch", default="master")
+    filter_group = release_parser.add_mutually_exclusive_group()
+    filter_group.add_argument(
+        "--use-filter",
+        dest="use_filter",
+        action="store_true",
+        default=True,
+        help="(default) Use the changelog-filtered increment so monorepo packages skip "
+        "increments triggered by sibling-only commits.",
+    )
+    filter_group.add_argument(
+        "--no-filter",
+        dest="use_filter",
+        action="store_false",
+        help="Skip the increment filter; let `cz bump` pick the increment itself "
+        "(use for single-package repos without `impacts`).",
+    )
+    release_parser.add_argument(
+        "bump_args",
+        nargs=argparse.REMAINDER,
+        help="Extra args forwarded to `cz bump` (separate with `--`).",
+    )
+    release_parser.set_defaults(func=cmd_release)
 
     args = parser.parse_args()
     args.func(args)

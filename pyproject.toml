@@ -14,7 +14,6 @@ dev = [
     "pytest-cov",
     "ruff",
     "pyright",
-    "nox",
 ]
 
 [project.scripts]
@@ -39,7 +38,7 @@ ignore = ["E501"]
 
 [tool.pyright]
 pythonVersion = "3.11"
-exclude = ["noxfile.py", ".nox", ".venv", "examples"]
+exclude = [".venv", "examples"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

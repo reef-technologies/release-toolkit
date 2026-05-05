@@ -16,7 +16,6 @@ changelogs** and **single-package** repositories. Slack notifications are
 * [Quick start (single-package repo)](#quick-start-single-package-repo)
 * [Authoring commits with `Impacts:` footer](#authoring-commits-with-impacts-footer)
 * [The `cz-release-toolkit` CLI](#the-cz-release-toolkit-cli)
-* [The `release_session` Nox helper](#the-release_session-nox-helper)
 * [GitHub building blocks](#github-building-blocks)
 * [Optional Slack](#optional-slack)
 * [Examples in this repo](#examples-in-this-repo)
@@ -31,12 +30,12 @@ changelogs** and **single-package** repositories. Slack notifications are
   computation by an `Impacts:` footer (configurable). When `impacts` is not
   configured, behaves like `cz_conventional_commits`.
 * **`cz-release-toolkit` CLI** — exposes `increment` (the missing piece that
-  makes Commitizen respect `changelog_pattern` while picking the bump kind)
-  and `init {single,monorepo}` for bootstrapping `[tool.commitizen]` into one
+  makes Commitizen respect `changelog_pattern` while picking the bump kind),
+  `init {single,monorepo}` for bootstrapping `[tool.commitizen]` into one
   or more `pyproject.toml` files **and** generating a matching
-  `release-notify` caller workflow under `.github/workflows/`.
-* **`release_toolkit.nox_release.release_session`** — drop-in Nox session that
-  performs the dirty-tree check, dry-run, confirmation, bump, and push.
+  `release-notify` caller workflow under `.github/workflows/`, and
+  `release` — a one-shot release driver that performs the dirty-tree check,
+  dry-run, confirmation, bump, and push.
 * **GitHub building blocks** under `github/` — a `setup-python-env` composite
   action and a `release-notify.yml` reusable workflow that creates a GitHub
   Release and (optionally) posts to Slack.
@@ -57,8 +56,8 @@ you can pass it to `cz bump --increment <kind>` and get monorepo-correct
 behavior.
 
 In a **single-package** repo you just leave `impacts` unset — the plugin
-collapses to plain Conventional Commits, and the Nox helper used with
-`use_filter=False` skips the increment-CLI step entirely.
+collapses to plain Conventional Commits, and `cz-release-toolkit release
+--no-filter` skips the increment-filter step entirely.
 
 ## Install
 
@@ -73,7 +72,6 @@ Add it to the dev group of every package that runs releases:
 dev = [
     "commitizen>=4.13",
     "cz-release-toolkit",
-    "nox",
 ]
 ```
 
@@ -122,19 +120,12 @@ Optionally tune by hand afterwards — the command stays minimal on purpose:
   current version: `ignored_tag_formats = ["service-v$version"]`.
 * override the footer name: `impacts_footer = "Affects"`.
 
-Then in the package noxfile:
-
-```python
-import nox
-from release_toolkit.nox_release import release_session
-
-@nox.session(name="release", python=False, default=False)
-def release(session):
-    release_session(session)
-```
-
 Tag a commit with `Impacts: client, commons` to flag it for the client package.
-Run `nox -s release` from the package directory when ready.
+Run the release from the package directory when ready:
+
+```bash
+uv run cz-release-toolkit release
+```
 
 A fuller example — including `tag-pattern` and `git_describe_command` for
 `hatch-vcs` — lives in `examples/monorepo/`.
@@ -163,17 +154,14 @@ a caller for the reusable
 `reef-technologies/release-toolkit/.github/workflows/release-notify.yml@v1`
 workflow, wired with `package_dir: .` and `tag_prefix: v`.
 
-Then in the noxfile:
+Then run the release from the repo root when ready:
 
-```python
-@nox.session(name="release", python=False, default=False)
-def release(session):
-    release_session(session, use_filter=False)
+```bash
+uv run cz-release-toolkit release --no-filter
 ```
 
-`use_filter=False` skips the `cz-release-toolkit increment` step; without an
-`impacts` list there is nothing to filter, and Commitizen will pick the bump
-itself.
+`--no-filter` skips the `increment` step; without an `impacts` list there is
+nothing to filter, and Commitizen will pick the bump itself.
 
 ## Authoring commits with `Impacts:` footer
 
@@ -199,9 +187,9 @@ package's `impacts` list.
 
 ## The `cz-release-toolkit` CLI
 
-Two subcommand groups: `increment` (used by the Nox helper but also runnable
-by hand) and `init` for bootstrapping `[tool.commitizen]` into one or more
-`pyproject.toml` files.
+Three subcommand groups: `increment` (used by `release` but also runnable by
+hand), `init` for bootstrapping `[tool.commitizen]` into one or more
+`pyproject.toml` files, and `release` for driving the actual release.
 
 ### `increment`
 
@@ -211,8 +199,8 @@ uv run cz-release-toolkit increment [--config pyproject.toml]
 
 Prints one of `MAJOR` / `MINOR` / `PATCH` / `NONE`. `NONE` means no commits
 since the last matching tag survived the `changelog_pattern` filter — there
-is nothing to release for this package. The Nox helper turns that into a
-`session.error()`.
+is nothing to release for this package. The `release` subcommand turns that
+into an abort.
 
 You can wire this into other release pipelines (Make, just, plain CI scripts)
 by capturing stdout and feeding it to `cz bump --increment "$INCREMENT"`.
@@ -292,34 +280,35 @@ All paths are processed independently. The exit code is non-zero only when
 at least one path hit a hard error (missing file, parse failure, repo root
 not found); warnings alone keep the exit code at 0.
 
-## The `release_session` Nox helper
+### `release`
 
-Signature:
+Drives the full release flow from one command. Run it from the package
+directory (the one that contains the `pyproject.toml` with
+`[tool.commitizen]`):
 
-```python
-release_session(
-    session,
-    *,
-    master_branch: str = "master",
-    use_filter: bool = True,
-    sync_args: tuple[str, ...] = ("--group", "dev"),
-)
+```bash
+uv run cz-release-toolkit release [--master-branch BRANCH] [--no-filter] [-- <bump-args>]
 ```
 
 What it does, in order:
 
-1. `uv sync` with `sync_args` so the toolchain is installed.
+1. `uv sync --group dev` so the toolchain is installed.
 2. Refuses to run on a dirty worktree (`git status --porcelain`).
-3. If on `master_branch`, fast-forwards via `git pull --ff-only`. Otherwise
-   logs a warning — useful for hotfix branches.
-4. When `use_filter=True`, runs `cz-release-toolkit increment` and aborts if
-   it returns `NONE`. Otherwise it does not pre-compute the increment and lets
-   `cz bump` decide.
+3. If on `--master-branch` (default: `master`), fast-forwards via
+   `git pull --ff-only`. Otherwise logs a warning — useful for hotfix branches.
+4. By default, computes the next increment with the changelog filter and
+   aborts if it would be `NONE`. Pass `--no-filter` to skip this step (use it
+   in single-package repos without `impacts`); `cz bump` then picks the
+   increment itself.
 5. Shows `cz bump --dry-run` output and asks for `[y/N]` confirmation.
 6. Runs the real `cz bump`, then `git push --follow-tags`.
 
-Anything you put in `nox -s release -- <extra-args>` is forwarded to `cz bump`,
-so you can override (e.g. `-- --prerelease beta`).
+Anything after a `--` separator is forwarded to `cz bump`, so you can override
+(e.g. `cz-release-toolkit release -- --prerelease beta`).
+
+The command exits with code 1 and an `ERROR:` line on stderr when a
+precondition fails (dirty worktree, nothing to release) or the user declines
+the confirmation prompt.
 
 ## GitHub building blocks
 
@@ -385,9 +374,9 @@ to enable, omit it to disable. There is no extra plugin to install.
 
 ## Examples in this repo
 
-* `examples/monorepo/` — `pyproject.toml`, `noxfile.py`, and an example caller
-  workflow (`.github-workflow-example.yml`) for a monorepo package using
-  `hatch-vcs` versioning.
+* `examples/monorepo/` — `pyproject.toml` and an example caller workflow
+  (`.github-workflow-example.yml`) for a monorepo package using `hatch-vcs`
+  versioning.
 * `examples/single-package/` — same setup but for a single-package repo
   without `impacts`.
 
@@ -413,7 +402,7 @@ src/release_toolkit/
     workflow_installer.py   # WorkflowConfig, render_workflow,
                             # is_release_notify_workflow (pure)
     cli.py                  # `cz-release-toolkit` argparse + I/O (main entry point)
-    nox_release.py          # release_session
+    release_runner.py       # run_release (subprocess orchestration)
 tests/
     conftest.py             # GitRepo fixture
     test_cz_plugin.py
@@ -440,8 +429,8 @@ package does not subscribe to.
 
 **`cz bump` wants to bump but `increment` says `NONE`.**
 That is the bug this toolkit fixes: vanilla `cz bump` ignores
-`changelog_pattern` for increment computation. Use the `release_session`
-helper (or feed `--increment` to `cz bump` yourself) so the filter is honored.
+`changelog_pattern` for increment computation. Use `cz-release-toolkit release`
+(or feed `--increment` to `cz bump` yourself) so the filter is honored.
 
 **Can I use a footer name other than `Impacts`?**
 Yes — set `impacts_footer = "Affects"` (or anything) under `[tool.commitizen]`.
