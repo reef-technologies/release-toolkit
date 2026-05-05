@@ -72,14 +72,22 @@ class TestInitSingle:
         assert 'tag_format = "v$version"' in text
         assert "impacts =" not in text
 
-    def test_already_installed_file_unchanged(self, monkeypatch, capsys, already_path):
-        before = already_path.read_text()
+    def test_already_installed_commitizen_only_keeps_section_and_injects_dev_dep(
+        self, monkeypatch, capsys, already_path
+    ):
         code = _run(monkeypatch, "init", "single", str(already_path))
         captured = capsys.readouterr()
+        text = already_path.read_text()
 
         assert code == 0
-        assert already_path.read_text() == before
         assert "already installed, skipping" in captured.out
+        # commitizen section unchanged
+        assert 'name = "impacts_cz"' in text
+        assert 'tag_format = "v$version"' in text
+        # dev-dep was forward-filled
+        assert "[dependency-groups]" in text
+        assert "release-toolkit" in text
+        assert "to [dependency-groups].dev" in captured.out
 
     def test_foreign_name_warns_and_keeps_file(self, monkeypatch, capsys, foreign_path):
         before = foreign_path.read_text()
@@ -130,6 +138,50 @@ class TestInitSingle:
         assert "file not found" in captured.err
         assert 'name = "impacts_cz"' in fresh_path.read_text()
 
+    def test_fresh_file_gets_release_toolkit_dev_dependency(
+        self, monkeypatch, capsys, fresh_path
+    ):
+        code = _run(monkeypatch, "init", "single", str(fresh_path))
+        captured = capsys.readouterr()
+        text = fresh_path.read_text()
+
+        assert code == 0
+        assert "[dependency-groups]" in text
+        assert "release-toolkit" in text
+        assert "to [dependency-groups].dev" in captured.out
+
+    def test_existing_release_toolkit_dev_entry_is_left_alone(
+        self, monkeypatch, capsys, tmp_path
+    ):
+        p = tmp_path / "with_existing_dev.toml"
+        p.write_text(
+            '[project]\nname = "demo"\nversion = "0.1.0"\n\n'
+            '[dependency-groups]\ndev = ["release-toolkit==9.9.9"]\n'
+        )
+        code = _run(monkeypatch, "init", "single", str(p))
+        captured = capsys.readouterr()
+        text = p.read_text()
+
+        assert code == 0
+        assert "release-toolkit==9.9.9" in text
+        assert text.count("release-toolkit") == 1
+        assert "already present in [dependency-groups].dev" in captured.out
+
+    def test_existing_dev_group_without_release_toolkit_appends(
+        self, monkeypatch, tmp_path
+    ):
+        p = tmp_path / "with_other_dev.toml"
+        p.write_text(
+            '[project]\nname = "demo"\nversion = "0.1.0"\n\n'
+            '[dependency-groups]\ndev = ["pytest>=8"]\n'
+        )
+        code = _run(monkeypatch, "init", "single", str(p))
+        text = p.read_text()
+
+        assert code == 0
+        assert "pytest>=8" in text
+        assert "release-toolkit" in text
+
 
 class TestInitMonorepo:
     def test_fresh_file_gets_named_tag_format_and_impacts(self, monkeypatch, capsys, fresh_path):
@@ -179,6 +231,29 @@ class TestInitMonorepo:
         assert 'impacts = ["client"]' in p1.read_text()
         assert 'tag_format = "service-v$version"' in p2.read_text()
         assert 'impacts = ["service"]' in p2.read_text()
+
+    def test_monorepo_injects_release_toolkit_dev_dep_into_each_pair(
+        self, monkeypatch, tmp_path
+    ):
+        p1 = tmp_path / "client.toml"
+        p2 = tmp_path / "service.toml"
+        p1.write_text(EMPTY_PYPROJECT)
+        p2.write_text(EMPTY_PYPROJECT)
+        code = _run(
+            monkeypatch,
+            "init",
+            "monorepo",
+            str(p1),
+            "client",
+            str(p2),
+            "service",
+        )
+
+        assert code == 0
+        assert "[dependency-groups]" in p1.read_text()
+        assert "release-toolkit" in p1.read_text()
+        assert "[dependency-groups]" in p2.read_text()
+        assert "release-toolkit" in p2.read_text()
 
 
 class TestInitParentRequired:

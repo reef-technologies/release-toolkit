@@ -17,8 +17,12 @@ from tomlkit.exceptions import TOMLKitError
 
 from release_toolkit.helpers import NO_INCREMENT, find_filtered_increment, load_config
 from release_toolkit.installer import (
+    RELEASE_TOOLKIT_PACKAGE,
     CommitizenConfig,
+    DevDepStatus,
     InstallStatus,
+    compute_release_toolkit_spec,
+    ensure_dev_dependency,
     install_into_document,
 )
 from release_toolkit.release_runner import ReleaseAborted, run_release
@@ -54,9 +58,10 @@ def cmd_release(args: argparse.Namespace) -> None:
 def cmd_init_single(args: argparse.Namespace) -> None:
     """Run ``init single`` for each given ``pyproject.toml`` path."""
     config = CommitizenConfig.for_single()
+    spec = _resolve_release_toolkit_spec()
     exit_code = 0
     for path in args.paths:
-        toml_ok = _apply_to_file(path, config)
+        toml_ok = _apply_to_file(path, config, spec)
         if not toml_ok:
             exit_code = 1
             continue
@@ -72,9 +77,10 @@ def cmd_init_monorepo(args: argparse.Namespace, parser: argparse.ArgumentParser)
     if len(raw) % 2:
         parser.error("monorepo requires PATH NAME pairs (even number of arguments)")
     pairs = [(Path(raw[i]), raw[i + 1]) for i in range(0, len(raw), 2)]
+    spec = _resolve_release_toolkit_spec()
     exit_code = 0
     for path, name in pairs:
-        toml_ok = _apply_to_file(path, CommitizenConfig.for_monorepo(name))
+        toml_ok = _apply_to_file(path, CommitizenConfig.for_monorepo(name), spec)
         if not toml_ok:
             exit_code = 1
             continue
@@ -84,12 +90,15 @@ def cmd_init_monorepo(args: argparse.Namespace, parser: argparse.ArgumentParser)
         sys.exit(exit_code)
 
 
-def _apply_to_file(path: Path, config: CommitizenConfig) -> bool:
-    """Apply ``install_into_document`` to ``path``, printing a status line.
+def _apply_to_file(path: Path, config: CommitizenConfig, release_toolkit_spec: str) -> bool:
+    """Apply ``install_into_document`` and ``ensure_dev_dependency`` to ``path``.
 
-    Returns ``True`` for INSTALLED / ALREADY_INSTALLED / FOREIGN_NAME outcomes
-    (warnings included). Returns ``False`` only on hard errors (file missing,
-    TOML parse failure) so the caller can aggregate a non-zero exit code.
+    Prints one status line per step (commitizen section + dev-dependency
+    entry). Returns ``True`` for INSTALLED / ALREADY_INSTALLED / FOREIGN_NAME
+    outcomes (warnings included). Returns ``False`` only on hard errors (file
+    missing, TOML parse failure) so the caller can aggregate a non-zero exit
+    code. The dev-dependency step runs only when the commitizen step did not
+    return ``FOREIGN_NAME`` (we leave foreign-configured files alone).
     """
     try:
         text = path.read_text()
@@ -102,20 +111,57 @@ def _apply_to_file(path: Path, config: CommitizenConfig) -> bool:
         print(f"ERROR: {path}: cannot parse TOML ({exc})", file=sys.stderr)
         return False
 
-    result = install_into_document(doc, config)
-    match result.status:
+    cz_result = install_into_document(doc, config)
+    document_changed = False
+    match cz_result.status:
         case InstallStatus.INSTALLED:
-            path.write_text(tomlkit.dumps(doc))
             print(f"INFO: {path}: added default [tool.commitizen] section")
+            document_changed = True
         case InstallStatus.ALREADY_INSTALLED:
             print(f"INFO: {path}: already installed, skipping")
         case InstallStatus.FOREIGN_NAME:
             print(
-                f"WARNING: {path}: [tool.commitizen] has name='{result.existing_name}' "
+                f"WARNING: {path}: [tool.commitizen] has name='{cz_result.existing_name}' "
                 f"(expected 'impacts_cz'), skipping",
                 file=sys.stderr,
             )
+
+    if cz_result.status is not InstallStatus.FOREIGN_NAME:
+        dev_result = ensure_dev_dependency(doc, release_toolkit_spec, RELEASE_TOOLKIT_PACKAGE)
+        if dev_result.status is DevDepStatus.ADDED:
+            print(f"INFO: {path}: added '{dev_result.spec_written}' to [dependency-groups].dev")
+            document_changed = True
+        else:
+            print(
+                f"INFO: {path}: release-toolkit already present in [dependency-groups].dev, skipping"
+            )
+
+    if document_changed:
+        path.write_text(tomlkit.dumps(doc))
     return True
+
+
+def _resolve_release_toolkit_spec() -> str:
+    """Compute the spec to inject, warning once per call when the version is unknown."""
+    version = _resolve_release_toolkit_version()
+    if version is None:
+        print(
+            "WARNING: could not detect installed release-toolkit version; "
+            "writing unbounded spec — install via 'uv tool install release-toolkit' "
+            "to get a version cap",
+            file=sys.stderr,
+        )
+    return compute_release_toolkit_spec(version)
+
+
+def _resolve_release_toolkit_version() -> str | None:
+    """Return the installed ``release-toolkit`` version, or ``None`` when unavailable."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version(RELEASE_TOOLKIT_PACKAGE)
+    except PackageNotFoundError:
+        return None
 
 
 def _apply_workflow(

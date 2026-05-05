@@ -9,8 +9,12 @@ from tomlkit.items import Table
 
 from release_toolkit.installer import (
     CommitizenConfig,
+    DevDepResult,
+    DevDepStatus,
     InstallResult,
     InstallStatus,
+    compute_release_toolkit_spec,
+    ensure_dev_dependency,
     install_into_document,
 )
 
@@ -159,3 +163,140 @@ class TestInstallIntoDocument:
         install_into_document(doc, CommitizenConfig.for_single())
 
         assert "# top comment" in tomlkit.dumps(doc)
+
+
+class TestComputeReleaseToolkitSpec:
+    @pytest.mark.parametrize(
+        "installed,expected",
+        [
+            ("0.2.0", "release-toolkit>=0.2.0,<1"),
+            ("1.4.2", "release-toolkit>=1.4.2,<2"),
+            ("12.0.0", "release-toolkit>=12.0.0,<13"),
+            ("2.0.0a1", "release-toolkit>=2.0.0a1,<3"),
+            ("3.1.0.dev1", "release-toolkit>=3.1.0.dev1,<4"),
+        ],
+    )
+    def test_caps_on_next_major(self, installed, expected):
+        assert compute_release_toolkit_spec(installed) == expected
+
+    def test_unknown_version_returns_bare_name(self):
+        assert compute_release_toolkit_spec(None) == "release-toolkit"
+
+    def test_unparseable_version_returns_bare_name(self):
+        assert compute_release_toolkit_spec("garbage") == "release-toolkit"
+
+
+class TestEnsureDevDependency:
+    def test_creates_section_on_empty_doc(self, empty_pyproject):
+        doc = tomlkit.parse(empty_pyproject)
+        result = ensure_dev_dependency(doc, "release-toolkit>=0.2.0,<1", "release-toolkit")
+        dumped = tomlkit.dumps(doc)
+
+        assert result == DevDepResult(
+            status=DevDepStatus.ADDED,
+            spec_written="release-toolkit>=0.2.0,<1",
+        )
+        assert "[dependency-groups]" in dumped
+        assert '"release-toolkit>=0.2.0,<1"' in dumped
+
+    def test_creates_dev_group_when_only_other_groups_exist(self):
+        doc = tomlkit.parse(
+            '[project]\nname = "demo"\nversion = "0.1.0"\n\n'
+            '[dependency-groups]\nci = ["nox"]\n'
+        )
+        result = ensure_dev_dependency(doc, "release-toolkit>=0.2.0,<1", "release-toolkit")
+        dumped = tomlkit.dumps(doc)
+
+        assert result == DevDepResult(
+            status=DevDepStatus.ADDED,
+            spec_written="release-toolkit>=0.2.0,<1",
+        )
+        assert '"nox"' in dumped
+        assert '"release-toolkit>=0.2.0,<1"' in dumped
+
+    def test_appends_to_existing_dev_group(self):
+        doc = tomlkit.parse(
+            '[project]\nname = "demo"\nversion = "0.1.0"\n\n'
+            '[dependency-groups]\ndev = ["pytest>=8"]\n'
+        )
+        result = ensure_dev_dependency(doc, "release-toolkit>=0.2.0,<1", "release-toolkit")
+        dumped = tomlkit.dumps(doc)
+
+        assert result.status == DevDepStatus.ADDED
+        assert '"pytest>=8"' in dumped
+        assert '"release-toolkit>=0.2.0,<1"' in dumped
+
+    def test_already_present_with_same_constraint_is_skip(self):
+        original = (
+            '[project]\nname = "demo"\nversion = "0.1.0"\n\n'
+            '[dependency-groups]\ndev = ["release-toolkit>=0.2.0,<1"]\n'
+        )
+        doc = tomlkit.parse(original)
+        result = ensure_dev_dependency(doc, "release-toolkit>=0.2.0,<1", "release-toolkit")
+
+        assert result == DevDepResult(
+            status=DevDepStatus.ALREADY_PRESENT,
+            spec_written="release-toolkit>=0.2.0,<1",
+        )
+        assert tomlkit.dumps(doc) == original
+
+    def test_already_present_with_different_constraint_is_skip(self):
+        original = (
+            '[project]\nname = "demo"\nversion = "0.1.0"\n\n'
+            '[dependency-groups]\ndev = ["release-toolkit==9.9.9"]\n'
+        )
+        doc = tomlkit.parse(original)
+        result = ensure_dev_dependency(doc, "release-toolkit>=0.2.0,<1", "release-toolkit")
+
+        assert result == DevDepResult(
+            status=DevDepStatus.ALREADY_PRESENT,
+            spec_written="release-toolkit==9.9.9",
+        )
+        assert tomlkit.dumps(doc) == original
+
+    def test_bare_name_already_present_is_skip(self):
+        original = (
+            '[project]\nname = "demo"\nversion = "0.1.0"\n\n'
+            '[dependency-groups]\ndev = ["release-toolkit"]\n'
+        )
+        doc = tomlkit.parse(original)
+        result = ensure_dev_dependency(doc, "release-toolkit>=0.2.0,<1", "release-toolkit")
+
+        assert result == DevDepResult(
+            status=DevDepStatus.ALREADY_PRESENT,
+            spec_written="release-toolkit",
+        )
+        assert tomlkit.dumps(doc) == original
+
+    def test_normalizes_underscore_vs_hyphen(self):
+        original = (
+            '[project]\nname = "demo"\nversion = "0.1.0"\n\n'
+            '[dependency-groups]\ndev = ["release_toolkit>=0.1"]\n'
+        )
+        doc = tomlkit.parse(original)
+        result = ensure_dev_dependency(doc, "release-toolkit>=0.2.0,<1", "release-toolkit")
+
+        assert result.status == DevDepStatus.ALREADY_PRESENT
+        assert tomlkit.dumps(doc) == original
+
+    def test_preserves_top_level_comment(self, commented_pyproject):
+        doc = tomlkit.parse(commented_pyproject)
+        ensure_dev_dependency(doc, "release-toolkit>=0.2.0,<1", "release-toolkit")
+
+        assert "# top comment" in tomlkit.dumps(doc)
+
+    def test_preserves_multiline_array_layout_when_appending(self):
+        original = (
+            '[project]\nname = "demo"\nversion = "0.1.0"\n\n'
+            '[dependency-groups]\n'
+            'dev = [\n'
+            '    "pytest>=8",\n'
+            ']\n'
+        )
+        doc = tomlkit.parse(original)
+        ensure_dev_dependency(doc, "release-toolkit>=0.2.0,<1", "release-toolkit")
+        dumped = tomlkit.dumps(doc)
+
+        assert '"pytest>=8",' in dumped
+        assert '"release-toolkit>=0.2.0,<1"' in dumped
+        assert "dev = [\n" in dumped

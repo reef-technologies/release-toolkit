@@ -65,18 +65,33 @@ The toolkit is published as `release-toolkit` and ships the
 `impacts_cz` Commitizen plugin via the `commitizen.plugin` entry point — no
 extra wiring needed once it is installed alongside `commitizen`.
 
-Add it to the dev group of every package that runs releases:
+The recommended install — both for single-package repos and for monorepos
+that have no root `pyproject.toml` to edit — is to put the CLI on your PATH
+once with `uv tool`:
 
-```toml
-[dependency-groups]
-dev = [
-    "commitizen>=4.13",
-    "release-toolkit",
-]
+```bash
+uv tool install release-toolkit
 ```
 
-…and sync with `uv sync --group dev` (or your tool of choice). Python ≥ 3.11
-is required.
+Then bootstrap the per-package config with `release-toolkit init` (or its
+short alias `rt init`). Each `init` call also injects a
+`release-toolkit>=X.Y.Z,<N+1` entry into the target's
+`[dependency-groups].dev` (with a major-version cap derived from the
+toolkit version that runs the command), so that `cz bump` — which needs the
+`impacts_cz` plugin in the same env as `commitizen` — works in CI and in
+`uv run cz bump` flows. `commitizen` itself is pulled in transitively by
+`release-toolkit`, so the generated `dev` group does not duplicate it.
+
+```bash
+release-toolkit init single ./pyproject.toml
+# or, for a monorepo:
+release-toolkit init monorepo packages/client/pyproject.toml client \
+                              packages/service/pyproject.toml service
+
+uv sync --group dev
+```
+
+Python ≥ 3.11 is required.
 
 If you consume from a private index / git ref instead of PyPI, point your
 project's package source there — the plugin discovery logic does not care
@@ -89,7 +104,7 @@ Each argument pair is `(PATH, NAME)` — path to the package's `pyproject.toml`
 and the package name used for `tag_format` / `impacts`:
 
 ```bash
-uv run release-toolkit init monorepo \
+release-toolkit init monorepo \
   packages/client/pyproject.toml client \
   packages/service/pyproject.toml service
 ```
@@ -97,6 +112,9 @@ uv run release-toolkit init monorepo \
 Result in `packages/client/pyproject.toml`:
 
 ```toml
+[dependency-groups]
+dev = ["release-toolkit>=X.Y.Z,<N+1"]
+
 [tool.commitizen]
 name = "impacts_cz"
 tag_format = "client-v$version"
@@ -124,7 +142,7 @@ Tag a commit with `Impacts: client, commons` to flag it for the client package.
 Run the release from the package directory when ready:
 
 ```bash
-uv run release-toolkit release
+release-toolkit release
 ```
 
 A fuller example — including `tag-pattern` and `git_describe_command` for
@@ -135,12 +153,15 @@ A fuller example — including `tag-pattern` and `git_describe_command` for
 Bootstrap `[tool.commitizen]` with `init single`:
 
 ```bash
-uv run release-toolkit init single ./pyproject.toml
+release-toolkit init single ./pyproject.toml
 ```
 
 Result:
 
 ```toml
+[dependency-groups]
+dev = ["release-toolkit>=X.Y.Z,<N+1"]
+
 [tool.commitizen]
 name = "impacts_cz"
 tag_format = "v$version"
@@ -157,7 +178,7 @@ workflow, wired with `package_dir: .` and `tag_prefix: v`.
 Then run the release from the repo root when ready:
 
 ```bash
-uv run release-toolkit release --no-filter
+release-toolkit release --no-filter
 ```
 
 `--no-filter` skips the `increment` step; without an `impacts` list there is
@@ -193,12 +214,12 @@ hand), `init` for bootstrapping `[tool.commitizen]` into one or more
 
 The CLI ships under two names — the full `release-toolkit` and the short
 alias `rt` — both pointing at the same entry point. Examples below use the
-full name; substitute `rt` for terseness (e.g. `uv run rt release`).
+full name; substitute `rt` for terseness (e.g. `rt release`).
 
 ### `increment`
 
 ```bash
-uv run release-toolkit increment [--config pyproject.toml]
+release-toolkit increment [--config pyproject.toml]
 ```
 
 Prints one of `MAJOR` / `MINOR` / `PATCH` / `NONE`. `NONE` means no commits
@@ -216,12 +237,14 @@ Inserts a default `[tool.commitizen]` section into one or more
 matching caller workflow at `<repo-root>/.github/workflows/release-notify.yml`:
 
 ```bash
-uv run release-toolkit init single ./pyproject.toml
+release-toolkit init single ./pyproject.toml
 # or many at once:
-uv run release-toolkit init single packages/a/pyproject.toml packages/b/pyproject.toml
+release-toolkit init single packages/a/pyproject.toml packages/b/pyproject.toml
 ```
 
-The inserted section:
+The inserted section (plus a `release-toolkit>=X.Y.Z,<N+1` entry appended to
+`[dependency-groups].dev` — see [Behaviour rules](#behaviour-rules-both-init-variants)
+below):
 
 ```toml
 [tool.commitizen]
@@ -240,12 +263,14 @@ positional **(PATH NAME)** pairs — the first item of each pair is a path to a
 `pyproject.toml`, the second is the package name:
 
 ```bash
-uv run release-toolkit init monorepo \
+release-toolkit init monorepo \
   packages/client/pyproject.toml client \
   packages/service/pyproject.toml service
 ```
 
-For the `client` pair above, the inserted section is:
+For the `client` pair above, the inserted section is (plus a
+`release-toolkit>=X.Y.Z,<N+1` entry appended to `[dependency-groups].dev` —
+see [Behaviour rules](#behaviour-rules-both-init-variants) below):
 
 ```toml
 [tool.commitizen]
@@ -270,6 +295,15 @@ Per file, the `[tool.commitizen]` step does one of:
 | present, different (or missing) `name`  | leave file unchanged                      | stderr `WARNING` |
 | file does not exist / TOML parse error  | leave file unchanged                      | stderr `ERROR`   |
 
+The dev-dependency step (skipped only when the `[tool.commitizen]` step
+returned `WARNING` for a foreign `name` — we leave foreign-configured files
+fully alone) does one of:
+
+| State of `[dependency-groups].dev`                  | Action                                        | Stream |
+| --------------------------------------------------- | --------------------------------------------- | ------ |
+| no `release-toolkit` entry (or no `dev` group at all) | append `release-toolkit>=X.Y.Z,<N+1`        | stdout `INFO`    |
+| `release-toolkit` already present (any constraint)  | leave unchanged                               | stdout `INFO`    |
+
 The workflow step (skipped only when the `[tool.commitizen]` step hit a hard
 error for the same path) does one of:
 
@@ -291,7 +325,7 @@ directory (the one that contains the `pyproject.toml` with
 `[tool.commitizen]`):
 
 ```bash
-uv run release-toolkit release [--master-branch BRANCH] [--no-filter] [-- <bump-args>]
+release-toolkit release [--master-branch BRANCH] [--no-filter] [-- <bump-args>]
 ```
 
 What it does, in order:
@@ -307,8 +341,8 @@ What it does, in order:
 5. Shows `cz bump --dry-run` output and asks for `[y/N]` confirmation.
 6. Runs the real `cz bump`, then `git push --follow-tags`.
 
-Anything after a `--` separator is forwarded to `cz bump`, so you can override
-(e.g. `release-toolkit release -- --prerelease beta`).
+Anything after a `--` separator is forwarded to `cz bump`, so you can
+override (e.g. `release-toolkit release -- --prerelease beta`).
 
 The command exits with code 1 and an `ERROR:` line on stderr when a
 precondition fails (dirty worktree, nothing to release) or the user declines

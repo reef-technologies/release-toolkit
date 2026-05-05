@@ -6,8 +6,7 @@ requires-python = ">=3.11"
 
 [dependency-groups]
 dev = [
-    "commitizen>=4.13",
-    "release-toolkit",
+    "release-toolkit>=0.2.0,<1",
 ]
 
 [build-system]
