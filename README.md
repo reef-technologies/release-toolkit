@@ -33,7 +33,8 @@ changelogs** and **single-package** repositories. Slack notifications are
 * **`cz-release-toolkit` CLI** — exposes `increment` (the missing piece that
   makes Commitizen respect `changelog_pattern` while picking the bump kind)
   and `init {single,monorepo}` for bootstrapping `[tool.commitizen]` into one
-  or more `pyproject.toml` files.
+  or more `pyproject.toml` files **and** generating a matching
+  `release-notify` caller workflow under `.github/workflows/`.
 * **`release_toolkit.nox_release.release_session`** — drop-in Nox session that
   performs the dirty-tree check, dry-run, confirmation, bump, and push.
 * **GitHub building blocks** under `github/` — a `setup-python-env` composite
@@ -106,6 +107,13 @@ update_changelog_on_bump = true
 impacts = ["client"]
 ```
 
+The command also writes a per-package caller workflow at
+`<repo-root>/.github/workflows/release-notify-client.yml` (and one for every
+other pair you pass). Each file invokes the reusable
+`reef-technologies/release-toolkit/.github/workflows/release-notify.yml@v1`
+workflow with the right `package_dir` and `tag_prefix`, and forwards
+`SLACK_WEBHOOK_URL` from the consumer repo's secrets.
+
 Optionally tune by hand afterwards — the command stays minimal on purpose:
 
 * add a shared tag (e.g. `commons`) to `impacts` if shared-code commits should
@@ -149,6 +157,11 @@ changelog_file = "CHANGELOG.md"
 update_changelog_on_bump = true
 # no `impacts` -> behaves like vanilla conventional_commits
 ```
+
+The command also writes `<repo-root>/.github/workflows/release-notify.yml` —
+a caller for the reusable
+`reef-technologies/release-toolkit/.github/workflows/release-notify.yml@v1`
+workflow, wired with `package_dir: .` and `tag_prefix: v`.
 
 Then in the noxfile:
 
@@ -207,7 +220,8 @@ by capturing stdout and feeding it to `cz bump --increment "$INCREMENT"`.
 ### `init single`
 
 Inserts a default `[tool.commitizen]` section into one or more
-`pyproject.toml` files for **single-package** repositories:
+`pyproject.toml` files for **single-package** repositories, and writes a
+matching caller workflow at `<repo-root>/.github/workflows/release-notify.yml`:
 
 ```bash
 uv run cz-release-toolkit init single ./pyproject.toml
@@ -228,8 +242,10 @@ update_changelog_on_bump = true
 ### `init monorepo`
 
 Same idea, but each target gets a per-package `tag_format` and `impacts`
-list. Arguments are positional **(PATH NAME)** pairs — the first item of
-each pair is a path to a `pyproject.toml`, the second is the package name:
+list, plus a per-package caller workflow at
+`<repo-root>/.github/workflows/release-notify-<name>.yml`. Arguments are
+positional **(PATH NAME)** pairs — the first item of each pair is a path to a
+`pyproject.toml`, the second is the package name:
 
 ```bash
 uv run cz-release-toolkit init monorepo \
@@ -253,7 +269,7 @@ by hand afterwards — the command stays minimal on purpose.
 
 ### Behaviour rules (both `init` variants)
 
-Per file, the command does one of:
+Per file, the `[tool.commitizen]` step does one of:
 
 | State of `[tool.commitizen]`            | Action                                    | Stream |
 | --------------------------------------- | ----------------------------------------- | ------ |
@@ -262,9 +278,19 @@ Per file, the command does one of:
 | present, different (or missing) `name`  | leave file unchanged                      | stderr `WARNING` |
 | file does not exist / TOML parse error  | leave file unchanged                      | stderr `ERROR`   |
 
+The workflow step (skipped only when the `[tool.commitizen]` step hit a hard
+error for the same path) does one of:
+
+| State of `<repo-root>/.github/workflows/`                                       | Action                              | Stream |
+| ------------------------------------------------------------------------------- | ----------------------------------- | ------ |
+| no file matches both `release-notify.yml@` and the requested `tag_prefix`       | create caller file                  | stdout `INFO`    |
+| an existing file references `release-notify.yml@` with the same `tag_prefix`    | leave unchanged                     | stdout `INFO`    |
+| target file name is occupied by an unrelated workflow                           | leave unchanged                     | stderr `WARNING` |
+| repo root not found (no `.git` walking up from the `pyproject.toml` directory)  | leave workflow tree unchanged       | stderr `ERROR`   |
+
 All paths are processed independently. The exit code is non-zero only when
-at least one path hit a hard error (missing file, parse failure); warnings
-alone keep the exit code at 0.
+at least one path hit a hard error (missing file, parse failure, repo root
+not found); warnings alone keep the exit code at 0.
 
 ## The `release_session` Nox helper
 
@@ -309,7 +335,9 @@ Reusable workflow. Triggered when a release tag is pushed; it generates
 release notes from `cz changelog`, creates a GitHub Release, and (optionally)
 posts to Slack.
 
-Caller workflow (e.g. `.github/workflows/cd-client.yml`):
+`cz-release-toolkit init {single,monorepo}` generates the caller file for
+you under `<repo-root>/.github/workflows/`; the example below is shown for
+reference (and for the case where you want to write the caller by hand):
 
 ```yaml
 name: CD Client
@@ -379,16 +407,19 @@ Layout:
 ```
 src/release_toolkit/
     __init__.py
-    cz_plugin.py      # ImpactsCz, build_changelog_pattern
-    helpers.py        # find_filtered_increment, load_config (pure)
-    installer.py      # CommitizenConfig, install_into_document (pure)
-    cli.py            # `cz-release-toolkit` argparse + I/O (main entry point)
-    nox_release.py    # release_session
+    cz_plugin.py            # ImpactsCz, build_changelog_pattern
+    helpers.py              # find_filtered_increment, load_config (pure)
+    installer.py            # CommitizenConfig, install_into_document (pure)
+    workflow_installer.py   # WorkflowConfig, render_workflow,
+                            # is_release_notify_workflow (pure)
+    cli.py                  # `cz-release-toolkit` argparse + I/O (main entry point)
+    nox_release.py          # release_session
 tests/
-    conftest.py       # GitRepo fixture
+    conftest.py             # GitRepo fixture
     test_cz_plugin.py
     test_helpers.py
     test_installer.py
+    test_workflow_installer.py
     test_cli_init.py
 github/
     actions/setup-python-env/

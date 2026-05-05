@@ -2,7 +2,8 @@
 
 This module is the only place that prints, reads files, writes files, or
 exits. Pure increment computation lives in :mod:`release_toolkit.helpers`;
-pure pyproject mutation lives in :mod:`release_toolkit.installer`.
+pure pyproject mutation lives in :mod:`release_toolkit.installer`; pure
+workflow rendering lives in :mod:`release_toolkit.workflow_installer`.
 """
 
 from __future__ import annotations
@@ -20,6 +21,11 @@ from release_toolkit.installer import (
     InstallStatus,
     install_into_document,
 )
+from release_toolkit.workflow_installer import (
+    WorkflowConfig,
+    is_release_notify_workflow,
+    render_workflow,
+)
 
 
 def cmd_increment(args: argparse.Namespace) -> None:
@@ -33,7 +39,11 @@ def cmd_init_single(args: argparse.Namespace) -> None:
     config = CommitizenConfig.for_single()
     exit_code = 0
     for path in args.paths:
-        if not _apply_to_file(path, config):
+        toml_ok = _apply_to_file(path, config)
+        if not toml_ok:
+            exit_code = 1
+            continue
+        if not _apply_workflow(path, _make_single_workflow_config):
             exit_code = 1
     if exit_code:
         sys.exit(exit_code)
@@ -47,7 +57,11 @@ def cmd_init_monorepo(args: argparse.Namespace, parser: argparse.ArgumentParser)
     pairs = [(Path(raw[i]), raw[i + 1]) for i in range(0, len(raw), 2)]
     exit_code = 0
     for path, name in pairs:
-        if not _apply_to_file(path, CommitizenConfig.for_monorepo(name)):
+        toml_ok = _apply_to_file(path, CommitizenConfig.for_monorepo(name))
+        if not toml_ok:
+            exit_code = 1
+            continue
+        if not _apply_workflow(path, lambda pkg_dir, _name=name: WorkflowConfig.for_monorepo(_name, pkg_dir)):
             exit_code = 1
     if exit_code:
         sys.exit(exit_code)
@@ -85,6 +99,97 @@ def _apply_to_file(path: Path, config: CommitizenConfig) -> bool:
                 file=sys.stderr,
             )
     return True
+
+
+def _apply_workflow(
+    pyproject_path: Path,
+    config_factory,
+) -> bool:
+    """Install the release-notify caller workflow for ``pyproject_path``.
+
+    Locates the repo root by walking up looking for ``.git``. When no repo root
+    is found, returns ``False`` (hard error). When an existing workflow already
+    references the release-notify reusable workflow (under any file name),
+    skips with INFO. When the target file name is occupied by an unrelated
+    workflow, skips with WARNING (still returns ``True`` - exit 0).
+    """
+    repo_root = _find_repo_root(pyproject_path.resolve().parent)
+    if repo_root is None:
+        print(
+            f"ERROR: {pyproject_path}: could not locate repo root (no .git found)",
+            file=sys.stderr,
+        )
+        return False
+
+    package_dir = _relative_package_dir(repo_root, pyproject_path)
+    config = config_factory(package_dir)
+
+    workflows_dir = repo_root / ".github" / "workflows"
+    existing = _find_existing_release_notify(workflows_dir, config.tag_prefix)
+    if existing is not None:
+        print(
+            f"INFO: {existing}: release-notify workflow for tag_prefix "
+            f"'{config.tag_prefix}' already present, skipping"
+        )
+        return True
+
+    target = workflows_dir / config.file_name
+    if target.exists():
+        print(
+            f"WARNING: {target}: file exists with unrelated content, skipping",
+            file=sys.stderr,
+        )
+        return True
+
+    workflows_dir.mkdir(parents=True, exist_ok=True)
+    target.write_text(render_workflow(config))
+    print(f"INFO: {target}: added release-notify caller workflow")
+    return True
+
+
+def _make_single_workflow_config(package_dir: str) -> WorkflowConfig:
+    """Factory used by ``cmd_init_single`` to bind ``package_dir`` to a config."""
+    return WorkflowConfig.for_single(package_dir)
+
+
+def _find_repo_root(start: Path) -> Path | None:
+    """Walk up from ``start`` looking for a ``.git`` entry; return parent dir or None."""
+    for candidate in (start, *start.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _relative_package_dir(repo_root: Path, pyproject_path: Path) -> str:
+    """Return ``pyproject_path``'s parent directory relative to ``repo_root`` as a POSIX string."""
+    package_dir = pyproject_path.resolve().parent
+    rel = package_dir.relative_to(repo_root.resolve())
+    rel_str = rel.as_posix()
+    return rel_str if rel_str != "" else "."
+
+
+def _find_existing_release_notify(workflows_dir: Path, tag_prefix: str) -> Path | None:
+    """Scan ``workflows_dir`` for an existing release-notify caller using ``tag_prefix``.
+
+    A match requires both: the file references the reusable
+    ``release-notify.yml`` workflow AND its rendered ``tag_prefix:`` line equals
+    the requested one. This keeps per-package monorepo files independent: a
+    ``release-notify-client.yml`` does not block creation of
+    ``release-notify-service.yml``.
+    """
+    if not workflows_dir.is_dir():
+        return None
+    needle = f"tag_prefix: {tag_prefix}"
+    for entry in sorted(workflows_dir.iterdir()):
+        if entry.suffix not in (".yml", ".yaml") or not entry.is_file():
+            continue
+        try:
+            content = entry.read_text()
+        except OSError:
+            continue
+        if is_release_notify_workflow(content) and needle in content:
+            return entry
+    return None
 
 
 def main() -> None:
