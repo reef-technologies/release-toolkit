@@ -76,18 +76,26 @@ class TestCommitizenConfigFactories:
     def test_for_single_returns_default_single_package_config(self):
         assert CommitizenConfig.for_single() == CommitizenConfig(
             name="impacts_cz",
+            version_provider="pep621",
             tag_format="v$version",
+            annotated_tag=True,
             changelog_file="CHANGELOG.md",
             update_changelog_on_bump=True,
+            changelog_merge_prerelease=True,
+            bump_message=None,
             impacts=(),
         )
 
-    def test_for_monorepo_uses_project_name_in_tag_format_and_impacts(self):
+    def test_for_monorepo_sets_per_module_overrides(self):
         assert CommitizenConfig.for_monorepo("client") == CommitizenConfig(
             name="impacts_cz",
+            version_provider="pep621",
             tag_format="client-v$version",
+            annotated_tag=True,
             changelog_file="CHANGELOG.md",
             update_changelog_on_bump=True,
+            changelog_merge_prerelease=True,
+            bump_message="bump: client $current_version -> $new_version",
             impacts=("client",),
         )
 
@@ -102,12 +110,17 @@ class TestInstallIntoDocument:
         section = _commitizen(doc)
         assert dict(section) == {
             "name": "impacts_cz",
+            "version_provider": "pep621",
             "tag_format": "v$version",
+            "annotated_tag": True,
             "changelog_file": "CHANGELOG.md",
             "update_changelog_on_bump": True,
+            "changelog_merge_prerelease": True,
         }
         assert "impacts" not in section
         assert "impacts =" not in dumped
+        assert "bump_message" not in section
+        assert "bump_message" not in dumped
 
     def test_inserts_monorepo_section_with_impacts_and_no_ignored_tag_formats(self, empty_pyproject):
         doc = tomlkit.parse(empty_pyproject)
@@ -118,6 +131,8 @@ class TestInstallIntoDocument:
         section = _commitizen(doc)
         assert section["tag_format"] == "client-v$version"
         assert list(cast(list[str], section["impacts"])) == ["client"]
+        assert section["bump_message"] == "bump: client $current_version -> $new_version"
+        assert 'bump_message = "bump: client $current_version -> $new_version"' in dumped
         assert "ignored_tag_formats" not in section
         assert "ignored_tag_formats" not in dumped
 

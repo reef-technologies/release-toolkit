@@ -36,19 +36,34 @@ class CommitizenConfig:
 
     Attributes:
         name: Plugin name; always ``"impacts_cz"`` in this toolkit.
+        version_provider: Source from which commitizen reads (and writes) the
+            project version. Defaults to ``"pep621"`` so the version lives in
+            ``[project].version`` of ``pyproject.toml``.
         tag_format: Commitizen ``tag_format`` value (e.g. ``"v$version"`` or
             ``"client-v$version"``).
+        annotated_tag: When ``True``, ``cz bump`` creates annotated git tags
+            (``git tag -a``) instead of lightweight tags.
         changelog_file: Path to the changelog file.
         update_changelog_on_bump: Whether commitizen should rewrite the
             changelog on bump.
+        changelog_merge_prerelease: When ``True``, prerelease entries are
+            merged into the next stable release section in the changelog.
+        bump_message: Optional override for the bump commit message. When
+            ``None``, commitizen uses its built-in default. Only the
+            ``$current_version`` and ``$new_version`` placeholders are
+            supported by commitizen.
         impacts: Optional tuple of impact tags. When non-empty, the key is
             emitted; when empty, omitted entirely.
     """
 
     name: str = IMPACTS_CZ_NAME
+    version_provider: str = "pep621"
     tag_format: str = "v$version"
+    annotated_tag: bool = True
     changelog_file: str = "CHANGELOG.md"
     update_changelog_on_bump: bool = True
+    changelog_merge_prerelease: bool = True
+    bump_message: str | None = None
     impacts: tuple[str, ...] = field(default_factory=tuple)
 
     @classmethod
@@ -61,6 +76,7 @@ class CommitizenConfig:
         """Return the default config for a monorepo package owned by ``project_name``."""
         return cls(
             tag_format=f"{project_name}-v$version",
+            bump_message=f"bump: {project_name} $current_version -> $new_version",
             impacts=(project_name,),
         )
 
@@ -91,15 +107,21 @@ class InstallResult:
 def render_section(config: CommitizenConfig) -> Table:
     """Build the tomlkit ``Table`` for ``[tool.commitizen]`` from ``config``.
 
-    Keys are emitted in a fixed, readable order: ``name``, ``tag_format``,
-    ``changelog_file``, ``update_changelog_on_bump``, then ``impacts`` only
-    when non-empty.
+    Keys are emitted in a fixed, readable order: ``name``, ``version_provider``,
+    ``tag_format``, ``annotated_tag``, ``changelog_file``,
+    ``update_changelog_on_bump``, ``changelog_merge_prerelease``, then
+    ``bump_message`` only when set, and ``impacts`` only when non-empty.
     """
     table = tomlkit.table()
     table["name"] = config.name
+    table["version_provider"] = config.version_provider
     table["tag_format"] = config.tag_format
+    table["annotated_tag"] = config.annotated_tag
     table["changelog_file"] = config.changelog_file
     table["update_changelog_on_bump"] = config.update_changelog_on_bump
+    table["changelog_merge_prerelease"] = config.changelog_merge_prerelease
+    if config.bump_message is not None:
+        table["bump_message"] = config.bump_message
     if config.impacts:
         impacts_array = tomlkit.array()
         impacts_array.extend(config.impacts)

@@ -222,7 +222,7 @@ def _make_single_workflow_config(package_dir: str) -> WorkflowConfig:
 
 
 def _print_slack_next_steps() -> None:
-    """Print a follow-up reminder describing how to enable Slack notifications."""
+    """Print follow-up reminders: Slack setup and version_provider customisation."""
     print()
     print("NEXT STEPS - to enable Slack notifications:")
     print("  1. Create a Slack incoming webhook URL")
@@ -230,6 +230,12 @@ def _print_slack_next_steps() -> None:
     print("  2. In your GitHub repo: Settings -> Secrets and variables -> Actions,")
     print("     add a repository secret named SLACK_WEBHOOK_URL with that URL.")
     print("Without the secret, the release workflow still succeeds; Slack is just skipped.")
+    print()
+    print("NEXT STEPS - version source:")
+    print("  Default version_provider is 'pep621' (reads/writes [project].version in")
+    print("  pyproject.toml). To version from another source (git tags, package.json,")
+    print("  Cargo.toml, ...), change [tool.commitizen].version_provider — see:")
+    print("  https://commitizen-tools.github.io/commitizen/config/version_provider/#built-in-providers")
 
 
 def _find_repo_root(start: Path) -> Path | None:

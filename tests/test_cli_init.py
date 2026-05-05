@@ -69,8 +69,12 @@ class TestInitSingle:
         assert "INFO:" in captured.out
         assert "added default" in captured.out
         assert 'name = "impacts_cz"' in text
+        assert 'version_provider = "pep621"' in text
         assert 'tag_format = "v$version"' in text
+        assert "annotated_tag = true" in text
+        assert "changelog_merge_prerelease = true" in text
         assert "impacts =" not in text
+        assert "bump_message" not in text
 
     def test_already_installed_commitizen_only_keeps_section_and_injects_dev_dep(
         self, monkeypatch, capsys, already_path
@@ -218,6 +222,7 @@ class TestInitMonorepo:
         assert code == 0
         assert 'tag_format = "client-v$version"' in text
         assert 'impacts = ["client"]' in text
+        assert 'bump_message = "bump: client $current_version -> $new_version"' in text
         assert "ignored_tag_formats" not in text
 
     def test_odd_number_of_args_is_argparse_error(
@@ -256,8 +261,10 @@ class TestInitMonorepo:
         assert code == 0
         assert 'tag_format = "client-v$version"' in p1.read_text()
         assert 'impacts = ["client"]' in p1.read_text()
+        assert 'bump_message = "bump: client $current_version -> $new_version"' in p1.read_text()
         assert 'tag_format = "service-v$version"' in p2.read_text()
         assert 'impacts = ["service"]' in p2.read_text()
+        assert 'bump_message = "bump: service $current_version -> $new_version"' in p2.read_text()
 
     def test_monorepo_injects_release_toolkit_dev_dep_into_each_pair(
         self, monkeypatch, tmp_path
@@ -474,6 +481,33 @@ class TestInitNextSteps:
         assert code == 0
         assert "NEXT STEPS" in captured.out
         assert "SLACK_WEBHOOK_URL" in captured.out
+
+    def test_single_prints_version_provider_next_steps_on_success(
+        self, monkeypatch, capsys, fresh_path
+    ):
+        code = _run(monkeypatch, "init", "single", str(fresh_path))
+        captured = capsys.readouterr()
+
+        assert code == 0
+        assert "version_provider" in captured.out
+        assert "pep621" in captured.out
+        assert (
+            "https://commitizen-tools.github.io/commitizen/config/version_provider/"
+            in captured.out
+        )
+
+    def test_monorepo_prints_version_provider_next_steps_on_success(
+        self, monkeypatch, capsys, fresh_path
+    ):
+        code = _run(monkeypatch, "init", "monorepo", str(fresh_path), "client")
+        captured = capsys.readouterr()
+
+        assert code == 0
+        assert "version_provider" in captured.out
+        assert (
+            "https://commitizen-tools.github.io/commitizen/config/version_provider/"
+            in captured.out
+        )
 
     def test_no_next_steps_on_error_exit(self, monkeypatch, capsys, tmp_path):
         missing = tmp_path / "nope.toml"
