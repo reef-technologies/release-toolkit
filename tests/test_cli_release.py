@@ -20,7 +20,7 @@ def capture_run_release(monkeypatch):
 
 
 def _run(monkeypatch, *argv: str) -> int:
-    monkeypatch.setattr(sys, "argv", ["cz-release-toolkit", *argv])
+    monkeypatch.setattr(sys, "argv", ["release-toolkit", *argv])
     try:
         cli_mod.main()
     except SystemExit as exc:

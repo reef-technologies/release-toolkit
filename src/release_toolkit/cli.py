@@ -1,4 +1,4 @@
-"""Argparse wiring and I/O for the ``cz-release-toolkit`` console script.
+"""Argparse wiring and I/O for the ``release-toolkit`` console script.
 
 This module is the only place that prints, reads files, writes files, or
 exits. Pure increment computation lives in :mod:`release_toolkit.helpers`;
@@ -210,7 +210,7 @@ def _find_existing_release_notify(workflows_dir: Path, tag_prefix: str) -> Path 
 
 
 def main() -> None:
-    """Entry point for the ``cz-release-toolkit`` console script."""
+    """Entry point for the ``release-toolkit`` console script."""
     parser = argparse.ArgumentParser(description="Release-toolkit CLI helpers.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 

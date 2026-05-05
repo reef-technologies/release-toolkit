@@ -1,5 +1,5 @@
 [project]
-name = "cz-release-toolkit"
+name = "release-toolkit"
 version = "0.1.0"
 description = "Reusable Commitizen-based release tooling for monorepo and single-package projects"
 readme = "README.md"
@@ -17,7 +17,8 @@ dev = [
 ]
 
 [project.scripts]
-cz-release-toolkit = "release_toolkit.cli:main"
+release-toolkit = "release_toolkit.cli:main"
+rt = "release_toolkit.cli:main"
 
 [project.entry-points."commitizen.plugin"]
 impacts_cz = "release_toolkit.cz_plugin:ImpactsCz"

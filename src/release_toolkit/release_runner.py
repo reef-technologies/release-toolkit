@@ -1,4 +1,4 @@
-"""Standalone release workflow used by the ``cz-release-toolkit release`` CLI.
+"""Standalone release workflow used by the ``release-toolkit release`` CLI.
 
 Steps: ``uv sync``, dirty-tree check, master fast-forward, optional filtered
 increment, ``cz bump --dry-run`` preview, confirmation, real bump, push.

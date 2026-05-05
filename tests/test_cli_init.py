@@ -50,7 +50,7 @@ def foreign_path(tmp_path: Path) -> Path:
 
 
 def _run(monkeypatch, *argv: str) -> int:
-    monkeypatch.setattr(sys, "argv", ["cz-release-toolkit", *argv])
+    monkeypatch.setattr(sys, "argv", ["release-toolkit", *argv])
     try:
         main()
     except SystemExit as exc:
