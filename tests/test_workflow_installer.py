@@ -55,7 +55,12 @@ class TestRenderWorkflow:
         text = render_workflow(WorkflowConfig.for_single())
 
         assert "SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}" in text
-        assert "# omit this line to disable Slack" in text
+
+    def test_rendered_workflow_has_no_inline_disable_slack_comment(self):
+        text = render_workflow(WorkflowConfig.for_single())
+
+        assert "omit this line" not in text
+        assert "disable Slack" not in text
 
 
 class TestIsReleaseNotifyWorkflow:

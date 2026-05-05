@@ -90,7 +90,7 @@ jobs:
       tag_prefix: {config.tag_prefix}
       python_version: '3.11'
     secrets:
-      SLACK_WEBHOOK_URL: ${{{{ secrets.SLACK_WEBHOOK_URL }}}}  # omit this line to disable Slack
+      SLACK_WEBHOOK_URL: ${{{{ secrets.SLACK_WEBHOOK_URL }}}}
     permissions:
       contents: write
 """

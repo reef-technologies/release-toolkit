@@ -69,6 +69,7 @@ def cmd_init_single(args: argparse.Namespace) -> None:
             exit_code = 1
     if exit_code:
         sys.exit(exit_code)
+    _print_slack_next_steps()
 
 
 def cmd_init_monorepo(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
@@ -88,6 +89,7 @@ def cmd_init_monorepo(args: argparse.Namespace, parser: argparse.ArgumentParser)
             exit_code = 1
     if exit_code:
         sys.exit(exit_code)
+    _print_slack_next_steps()
 
 
 def _apply_to_file(path: Path, config: CommitizenConfig, release_toolkit_spec: str) -> bool:
@@ -213,6 +215,17 @@ def _apply_workflow(
 def _make_single_workflow_config(package_dir: str) -> WorkflowConfig:
     """Factory used by ``cmd_init_single`` to bind ``package_dir`` to a config."""
     return WorkflowConfig.for_single(package_dir)
+
+
+def _print_slack_next_steps() -> None:
+    """Print a follow-up reminder describing how to enable Slack notifications."""
+    print()
+    print("NEXT STEPS - to enable Slack notifications:")
+    print("  1. Create a Slack incoming webhook URL")
+    print("     (https://api.slack.com/messaging/webhooks).")
+    print("  2. In your GitHub repo: Settings -> Secrets and variables -> Actions,")
+    print("     add a repository secret named SLACK_WEBHOOK_URL with that URL.")
+    print("Without the secret, the release workflow still succeeds; Slack is just skipped.")
 
 
 def _find_repo_root(start: Path) -> Path | None:

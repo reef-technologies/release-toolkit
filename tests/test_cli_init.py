@@ -407,3 +407,45 @@ class TestInitWorkflow:
         assert code == 0
         assert workflow.read_text() == first_text
         assert "already present, skipping" in captured.out
+
+
+class TestInitNextSteps:
+    def test_single_prints_slack_next_steps_on_success(
+        self, monkeypatch, capsys, fresh_path
+    ):
+        code = _run(monkeypatch, "init", "single", str(fresh_path))
+        captured = capsys.readouterr()
+
+        assert code == 0
+        assert "NEXT STEPS" in captured.out
+        assert "SLACK_WEBHOOK_URL" in captured.out
+
+    def test_monorepo_prints_slack_next_steps_on_success(
+        self, monkeypatch, capsys, fresh_path
+    ):
+        code = _run(monkeypatch, "init", "monorepo", str(fresh_path), "client")
+        captured = capsys.readouterr()
+
+        assert code == 0
+        assert "NEXT STEPS" in captured.out
+        assert "SLACK_WEBHOOK_URL" in captured.out
+
+    def test_no_next_steps_on_error_exit(self, monkeypatch, capsys, tmp_path):
+        missing = tmp_path / "nope.toml"
+        code = _run(monkeypatch, "init", "single", str(missing))
+        captured = capsys.readouterr()
+
+        assert code == 1
+        assert "NEXT STEPS" not in captured.out
+
+    def test_next_steps_printed_on_idempotent_rerun(
+        self, monkeypatch, capsys, fresh_path
+    ):
+        _run(monkeypatch, "init", "single", str(fresh_path))
+        capsys.readouterr()
+
+        code = _run(monkeypatch, "init", "single", str(fresh_path))
+        captured = capsys.readouterr()
+
+        assert code == 0
+        assert "NEXT STEPS" in captured.out
