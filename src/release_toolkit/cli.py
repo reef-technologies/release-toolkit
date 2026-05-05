@@ -60,7 +60,8 @@ def cmd_init_single(args: argparse.Namespace) -> None:
     config = CommitizenConfig.for_single()
     spec = _resolve_release_toolkit_spec()
     exit_code = 0
-    for path in args.paths:
+    for raw_path in args.paths:
+        path = _resolve_pyproject_path(raw_path)
         toml_ok = _apply_to_file(path, config, spec)
         if not toml_ok:
             exit_code = 1
@@ -77,7 +78,10 @@ def cmd_init_monorepo(args: argparse.Namespace, parser: argparse.ArgumentParser)
     raw = args.args
     if len(raw) % 2:
         parser.error("monorepo requires PATH NAME pairs (even number of arguments)")
-    pairs = [(Path(raw[i]), raw[i + 1]) for i in range(0, len(raw), 2)]
+    pairs = [
+        (_resolve_pyproject_path(Path(raw[i])), raw[i + 1])
+        for i in range(0, len(raw), 2)
+    ]
     spec = _resolve_release_toolkit_spec()
     exit_code = 0
     for path, name in pairs:
@@ -236,6 +240,18 @@ def _find_repo_root(start: Path) -> Path | None:
     return None
 
 
+def _resolve_pyproject_path(path: Path) -> Path:
+    """Return the ``pyproject.toml`` file path for a user-supplied ``path``.
+
+    When ``path`` is an existing directory, append ``pyproject.toml``. Otherwise
+    return ``path`` unchanged so existing error messages (file not found, TOML
+    parse failure) are emitted by the downstream apply step.
+    """
+    if path.is_dir():
+        return path / "pyproject.toml"
+    return path
+
+
 def _relative_package_dir(repo_root: Path, pyproject_path: Path) -> str:
     """Return ``pyproject_path``'s parent directory relative to ``repo_root`` as a POSIX string."""
     package_dir = pyproject_path.resolve().parent
@@ -280,19 +296,30 @@ def main() -> None:
     increment_parser.set_defaults(func=cmd_increment)
 
     init_parser = subparsers.add_parser(
-        "init", help="Install [tool.commitizen] into pyproject.toml files."
+        "init",
+        help=(
+            "Install [tool.commitizen] into pyproject.toml files. "
+            "Each PATH may point at a pyproject.toml file or at the directory containing one."
+        ),
     )
     init_subparsers = init_parser.add_subparsers(dest="init_command", required=True)
 
     single_parser = init_subparsers.add_parser(
-        "single", help="Install single-package config into each given pyproject.toml."
+        "single",
+        help=(
+            "Install single-package config into each given pyproject.toml "
+            "(PATH may be the file itself or its containing directory)."
+        ),
     )
     single_parser.add_argument("paths", nargs="+", type=Path, metavar="PATH")
     single_parser.set_defaults(func=cmd_init_single)
 
     monorepo_parser = init_subparsers.add_parser(
         "monorepo",
-        help="Install monorepo config; arguments are PATH NAME pairs.",
+        help=(
+            "Install monorepo config; arguments are PATH NAME pairs "
+            "(PATH may be the pyproject.toml file or its containing directory)."
+        ),
     )
     monorepo_parser.add_argument("args", nargs="+", metavar="PATH NAME")
     monorepo_parser.set_defaults(func=lambda a: cmd_init_monorepo(a, monorepo_parser))

@@ -182,6 +182,33 @@ class TestInitSingle:
         assert "pytest>=8" in text
         assert "release-toolkit" in text
 
+    def test_directory_path_is_resolved_to_pyproject_toml(
+        self, monkeypatch, capsys, tmp_path
+    ):
+        package_dir = tmp_path / "pkg"
+        package_dir.mkdir()
+        pyproject = package_dir / "pyproject.toml"
+        pyproject.write_text(EMPTY_PYPROJECT)
+
+        code = _run(monkeypatch, "init", "single", str(package_dir))
+        captured = capsys.readouterr()
+        text = pyproject.read_text()
+
+        assert code == 0
+        assert "added default" in captured.out
+        assert 'name = "impacts_cz"' in text
+
+    def test_directory_without_pyproject_errors(self, monkeypatch, capsys, tmp_path):
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir()
+
+        code = _run(monkeypatch, "init", "single", str(empty_dir))
+        captured = capsys.readouterr()
+
+        assert code == 1
+        assert "file not found" in captured.err
+        assert "pyproject.toml" in captured.err
+
 
 class TestInitMonorepo:
     def test_fresh_file_gets_named_tag_format_and_impacts(self, monkeypatch, capsys, fresh_path):
@@ -254,6 +281,24 @@ class TestInitMonorepo:
         assert "release-toolkit" in p1.read_text()
         assert "[dependency-groups]" in p2.read_text()
         assert "release-toolkit" in p2.read_text()
+
+    def test_directory_path_is_resolved_to_pyproject_toml(
+        self, monkeypatch, tmp_path
+    ):
+        client_dir = tmp_path / "packages" / "client"
+        client_dir.mkdir(parents=True)
+        pyproject = client_dir / "pyproject.toml"
+        pyproject.write_text(EMPTY_PYPROJECT)
+
+        code = _run(
+            monkeypatch, "init", "monorepo", str(client_dir), "client"
+        )
+        text = pyproject.read_text()
+
+        assert code == 0
+        assert 'tag_format = "client-v$version"' in text
+        assert 'impacts = ["client"]' in text
+        assert (tmp_path / ".github" / "workflows" / "release-notify-client.yml").is_file()
 
 
 class TestInitParentRequired:
