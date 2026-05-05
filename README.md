@@ -30,8 +30,10 @@ changelogs** and **single-package** repositories. Slack notifications are
 * **`impacts_cz` Commitizen plugin** — filters changelog and version-increment
   computation by an `Impacts:` footer (configurable). When `impacts` is not
   configured, behaves like `cz_conventional_commits`.
-* **`cz-release-toolkit` CLI** — exposes `increment`, the missing piece that
-  makes Commitizen respect `changelog_pattern` while picking the bump kind.
+* **`cz-release-toolkit` CLI** — exposes `increment` (the missing piece that
+  makes Commitizen respect `changelog_pattern` while picking the bump kind)
+  and `init {single,monorepo}` for bootstrapping `[tool.commitizen]` into one
+  or more `pyproject.toml` files.
 * **`release_toolkit.nox_release.release_session`** — drop-in Nox session that
   performs the dirty-tree check, dry-run, confirmation, bump, and push.
 * **GitHub building blocks** under `github/` — a `setup-python-env` composite
@@ -83,20 +85,34 @@ where the wheel came from.
 
 ## Quick start (monorepo)
 
-In each package's `pyproject.toml`:
+Bootstrap `[tool.commitizen]` into every package at once with `init monorepo`.
+Each argument pair is `(PATH, NAME)` — path to the package's `pyproject.toml`
+and the package name used for `tag_format` / `impacts`:
+
+```bash
+uv run cz-release-toolkit init monorepo \
+  packages/client/pyproject.toml client \
+  packages/service/pyproject.toml service
+```
+
+Result in `packages/client/pyproject.toml`:
 
 ```toml
 [tool.commitizen]
 name = "impacts_cz"
 tag_format = "client-v$version"
-ignored_tag_formats = ["service-v$version", "common-v$version"]
 changelog_file = "CHANGELOG.md"
 update_changelog_on_bump = true
-
-# release-toolkit additions:
-impacts = ["client", "commons"]   # this package picks up commits tagged with these
-# impacts_footer = "Impacts"      # optional override
+impacts = ["client"]
 ```
+
+Optionally tune by hand afterwards — the command stays minimal on purpose:
+
+* add a shared tag (e.g. `commons`) to `impacts` if shared-code commits should
+  bump this package: `impacts = ["client", "commons"]`.
+* declare sibling tag formats so Commitizen ignores them when picking the
+  current version: `ignored_tag_formats = ["service-v$version"]`.
+* override the footer name: `impacts_footer = "Affects"`.
 
 Then in the package noxfile:
 
@@ -117,12 +133,24 @@ A fuller example — including `tag-pattern` and `git_describe_command` for
 
 ## Quick start (single-package repo)
 
+Bootstrap `[tool.commitizen]` with `init single`:
+
+```bash
+uv run cz-release-toolkit init single ./pyproject.toml
+```
+
+Result:
+
 ```toml
 [tool.commitizen]
 name = "impacts_cz"
 tag_format = "v$version"
+changelog_file = "CHANGELOG.md"
+update_changelog_on_bump = true
 # no `impacts` -> behaves like vanilla conventional_commits
 ```
+
+Then in the noxfile:
 
 ```python
 @nox.session(name="release", python=False, default=False)
@@ -158,7 +186,11 @@ package's `impacts` list.
 
 ## The `cz-release-toolkit` CLI
 
-One subcommand, used by the Nox helper but also runnable by hand:
+Two subcommand groups: `increment` (used by the Nox helper but also runnable
+by hand) and `init` for bootstrapping `[tool.commitizen]` into one or more
+`pyproject.toml` files.
+
+### `increment`
 
 ```bash
 uv run cz-release-toolkit increment [--config pyproject.toml]
@@ -171,6 +203,68 @@ is nothing to release for this package. The Nox helper turns that into a
 
 You can wire this into other release pipelines (Make, just, plain CI scripts)
 by capturing stdout and feeding it to `cz bump --increment "$INCREMENT"`.
+
+### `init single`
+
+Inserts a default `[tool.commitizen]` section into one or more
+`pyproject.toml` files for **single-package** repositories:
+
+```bash
+uv run cz-release-toolkit init single ./pyproject.toml
+# or many at once:
+uv run cz-release-toolkit init single packages/a/pyproject.toml packages/b/pyproject.toml
+```
+
+The inserted section:
+
+```toml
+[tool.commitizen]
+name = "impacts_cz"
+tag_format = "v$version"
+changelog_file = "CHANGELOG.md"
+update_changelog_on_bump = true
+```
+
+### `init monorepo`
+
+Same idea, but each target gets a per-package `tag_format` and `impacts`
+list. Arguments are positional **(PATH NAME)** pairs — the first item of
+each pair is a path to a `pyproject.toml`, the second is the package name:
+
+```bash
+uv run cz-release-toolkit init monorepo \
+  packages/client/pyproject.toml client \
+  packages/service/pyproject.toml service
+```
+
+For the `client` pair above, the inserted section is:
+
+```toml
+[tool.commitizen]
+name = "impacts_cz"
+tag_format = "client-v$version"
+changelog_file = "CHANGELOG.md"
+update_changelog_on_bump = true
+impacts = ["client"]
+```
+
+Tune `impacts` (e.g. add a shared `commons` tag) and `ignored_tag_formats`
+by hand afterwards — the command stays minimal on purpose.
+
+### Behaviour rules (both `init` variants)
+
+Per file, the command does one of:
+
+| State of `[tool.commitizen]`            | Action                                    | Stream |
+| --------------------------------------- | ----------------------------------------- | ------ |
+| absent                                  | insert default section                    | stdout `INFO`    |
+| present, `name = "impacts_cz"`          | leave file unchanged                      | stdout `INFO`    |
+| present, different (or missing) `name`  | leave file unchanged                      | stderr `WARNING` |
+| file does not exist / TOML parse error  | leave file unchanged                      | stderr `ERROR`   |
+
+All paths are processed independently. The exit code is non-zero only when
+at least one path hit a hard error (missing file, parse failure); warnings
+alone keep the exit code at 0.
 
 ## The `release_session` Nox helper
 
@@ -286,12 +380,16 @@ Layout:
 src/release_toolkit/
     __init__.py
     cz_plugin.py      # ImpactsCz, build_changelog_pattern
-    helpers.py        # `cz-release-toolkit` CLI, find_filtered_increment
+    helpers.py        # find_filtered_increment, load_config (pure)
+    installer.py      # CommitizenConfig, install_into_document (pure)
+    cli.py            # `cz-release-toolkit` argparse + I/O (main entry point)
     nox_release.py    # release_session
 tests/
     conftest.py       # GitRepo fixture
     test_cz_plugin.py
     test_helpers.py
+    test_installer.py
+    test_cli_init.py
 github/
     actions/setup-python-env/
     workflows/release-notify.yml

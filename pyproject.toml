@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 authors = [{name = "Reef Technologies", email = "opensource@reef.pl"}]
 license = {text = "MIT"}
-dependencies = ["commitizen>=4.13"]
+dependencies = ["commitizen>=4.13", "tomlkit>=0.13"]
 
 [dependency-groups]
 dev = [
@@ -18,7 +18,7 @@ dev = [
 ]
 
 [project.scripts]
-cz-release-toolkit = "release_toolkit.helpers:main"
+cz-release-toolkit = "release_toolkit.cli:main"
 
 [project.entry-points."commitizen.plugin"]
 impacts_cz = "release_toolkit.cz_plugin:ImpactsCz"

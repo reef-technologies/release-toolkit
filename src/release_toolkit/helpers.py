@@ -1,8 +1,7 @@
-"""CLI helpers used by release pipelines."""
+"""Pure helpers for computing the Commitizen increment respecting changelog filters."""
 
 from __future__ import annotations
 
-import argparse
 import re
 from pathlib import Path
 from typing import cast
@@ -43,24 +42,3 @@ def find_filtered_increment(config: BaseConfig) -> Increment | None:
     filtered = [commit for commit in commits if changelog_pattern.match(commit.message)]
     increments_map = cz.bump_map_major_version_zero if config.settings["major_version_zero"] else cz.bump_map
     return bump.find_increment(filtered, regex=cz.bump_pattern, increments_map=increments_map)
-
-
-def cmd_increment(args: argparse.Namespace) -> None:
-    increment = find_filtered_increment(load_config(args.config))
-    print(increment or NO_INCREMENT)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Release-toolkit CLI helpers.")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    increment_parser = subparsers.add_parser("increment", help="Print the changelog-filtered Commitizen increment.")
-    increment_parser.add_argument("--config", type=Path, default=Path("pyproject.toml"))
-    increment_parser.set_defaults(func=cmd_increment)
-
-    args = parser.parse_args()
-    args.func(args)
-
-
-if __name__ == "__main__":
-    main()
