@@ -158,7 +158,7 @@ Tune by hand afterwards if needed:
 
 ## GitHub building blocks
 
-### `github/workflows/release-notify.yml`
+### `.github/workflows/release-notify.yml`
 
 Reusable workflow. Triggered on a release tag push; generates notes from
 `cz changelog`, creates a GitHub Release, optionally posts to Slack. The
@@ -197,7 +197,7 @@ jobs:
 Slack is fully optional: provide `SLACK_WEBHOOK_URL` to enable, omit to
 disable. No extra plugin to install.
 
-### `github/actions/setup-python-env`
+### `.github/actions/setup-python-env`
 
 Composite action that installs Python, `uv`, and `nox` at pinned versions.
 Inputs: `python-version` (required), `uv-version`, `nox-version`.
