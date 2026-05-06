@@ -1,0 +1,21 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    uses: reef-technologies/release-toolkit/.github/workflows/release-notify.yml@v1
+    with:
+      package_dir: .
+      tag_prefix: v
+      python_version: '3.11'
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    permissions:
+      contents: write
