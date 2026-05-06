@@ -293,29 +293,63 @@ def _find_existing_release_caller(workflows_dir: Path, tag_prefix: str) -> Path 
 
 def main() -> None:
     """Entry point for the ``release-toolkit`` console script."""
-    parser = argparse.ArgumentParser(description="Release-toolkit CLI helpers.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "rt - Commitizen-based release automation: compute changelog-filtered "
+            "version increments, bootstrap [tool.commitizen] config and GitHub release "
+            "workflows in single- and multi-package repos, and run the bump-and-push "
+            "release flow."
+        ),
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     increment_parser = subparsers.add_parser(
-        "increment", help="Print the changelog-filtered Commitizen increment."
+        "increment",
+        help="Print the changelog-filtered Commitizen increment, or NO_INCREMENT if none applies.",
+        description=(
+            "Compute the next Commitizen increment for the project at --config and print "
+            "it on stdout. The result is filtered by [tool.commitizen.changelog_pattern] "
+            "/ [tool.commitizen.impacts]: commits that don't match are discarded before "
+            "Commitizen picks an increment, so monorepo packages ignore sibling-only "
+            "commits. When nothing remains, prints the literal token NO_INCREMENT - CI "
+            "hooks consume that to decide whether to skip a release."
+        ),
     )
-    increment_parser.add_argument("--config", type=Path, default=Path("pyproject.toml"))
+    increment_parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("pyproject.toml"),
+        metavar="PATH",
+        help="Path to a pyproject.toml containing a [tool.commitizen] section (default: ./pyproject.toml).",
+    )
     increment_parser.set_defaults(func=cmd_increment)
 
     init_parser = subparsers.add_parser(
         "init",
-        help=(
-            "Install [tool.commitizen] into pyproject.toml files. "
-            "Each PATH may point at a pyproject.toml file or at the directory containing one."
+        help="Bootstrap [tool.commitizen] config, dev-dependency entry, and GitHub release workflow.",
+        description=(
+            "Configure a repository for release-toolkit. For each target pyproject.toml, "
+            "init (1) writes a default [tool.commitizen] block with name='impacts_cz', "
+            "(2) adds release-toolkit to the [dependency-groups].dev list, and (3) "
+            "installs a GitHub release-caller workflow under .github/workflows/. Use "
+            "'single' for one-package repos and 'monorepo' for multi-package repos where "
+            "each package needs its own tag prefix and workflow file. All steps are "
+            "idempotent - re-running on an already-configured project skips with INFO."
         ),
     )
     init_subparsers = init_parser.add_subparsers(dest="init_command", required=True)
 
     single_parser = init_subparsers.add_parser(
         "single",
-        help=(
-            "Install single-package config into each given pyproject.toml "
-            "(PATH may be the file itself or its containing directory)."
+        help="Configure a single-package repo (one pyproject.toml, one workflow).",
+        description=(
+            "Configure one or more single-package projects. Each PATH may be a "
+            "pyproject.toml file or a directory containing one. For each target, writes "
+            "[tool.commitizen] (name='impacts_cz', tag_prefix='v'), adds release-toolkit "
+            "to [dependency-groups].dev, and installs .github/workflows/release.yml. "
+            "Idempotent: already-configured targets are reported with INFO and skipped; "
+            "a foreign [tool.commitizen] section (different name) triggers a WARNING and "
+            "is left untouched."
         ),
     )
     single_parser.add_argument(
@@ -324,19 +358,31 @@ def main() -> None:
         default=None,
         metavar="PROVIDER",
         help=(
-            "Override [tool.commitizen].version_provider (default: 'pep621'). "
-            "Any string is accepted and written verbatim. See: "
-            "https://commitizen-tools.github.io/commitizen/config/version_provider/"
+            "Override [tool.commitizen].version_provider; written verbatim "
+            "(default: pep621). See https://commitizen-tools.github.io/commitizen/config/version_provider/."
         ),
     )
-    single_parser.add_argument("paths", nargs="+", type=Path, metavar="PATH")
+    single_parser.add_argument(
+        "paths",
+        nargs="+",
+        type=Path,
+        metavar="PATH",
+        help="One or more pyproject.toml files, or directories containing one.",
+    )
     single_parser.set_defaults(func=cmd_init_single)
 
     monorepo_parser = init_subparsers.add_parser(
         "monorepo",
-        help=(
-            "Install monorepo config; arguments are PATH NAME pairs "
-            "(PATH may be the pyproject.toml file or its containing directory)."
+        help="Configure a multi-package repo: one PATH NAME pair per package.",
+        description=(
+            "Configure each package in a monorepo. Arguments come in PATH NAME pairs: "
+            "PATH points at a package's pyproject.toml (or its directory); NAME is the "
+            "package identifier used as the Commitizen name and the tag prefix (e.g. "
+            "NAME=backend yields tags 'backend-vX.Y.Z' and workflow file "
+            "release-backend.yml). For each pair, writes [tool.commitizen], adds "
+            "release-toolkit to [dependency-groups].dev, and installs a per-package "
+            "release-caller workflow. Idempotent: existing matching configurations are "
+            "skipped with INFO."
         ),
     )
     monorepo_parser.add_argument(
@@ -345,39 +391,73 @@ def main() -> None:
         default=None,
         metavar="PROVIDER",
         help=(
-            "Override [tool.commitizen].version_provider (default: 'pep621'). "
-            "Any string is accepted and written verbatim. See: "
-            "https://commitizen-tools.github.io/commitizen/config/version_provider/"
+            "Override [tool.commitizen].version_provider; written verbatim "
+            "(default: pep621). See https://commitizen-tools.github.io/commitizen/config/version_provider/."
         ),
     )
-    monorepo_parser.add_argument("args", nargs="+", metavar="PATH NAME")
+    monorepo_parser.add_argument(
+        "args",
+        nargs="+",
+        metavar="PATH NAME",
+        help=(
+            "PATH NAME pairs: each PATH is a pyproject.toml (or its directory); each "
+            "NAME is the package identifier used for the tag prefix and workflow file name."
+        ),
+    )
     monorepo_parser.set_defaults(func=lambda a: cmd_init_monorepo(a, monorepo_parser))
 
     release_parser = subparsers.add_parser(
         "release",
-        help="Run the standard release workflow (uv sync -> checks -> cz bump -> push).",
+        help="Run the standard release: uv sync, project checks, cz bump, push commit + tag.",
+        description=(
+            "Run the standard release flow end-to-end: sync the environment with uv,\n"
+            "run the project's checks, invoke 'cz bump' with the changelog-filtered\n"
+            "increment, then push the bump commit and the new tag to --master-branch.\n"
+            "Aborts (exit 1) if the working tree is dirty or there are no releasable\n"
+            "commits. When run from a branch other than --master-branch, prints a\n"
+            "warning and prompts for confirmation rather than aborting."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  rt release                              # default flow on master\n"
+            "  rt release -- --dry-run                 # forward --dry-run to cz bump\n"
+            "  rt release --master-branch main --no-filter\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    release_parser.add_argument("--master-branch", default="master")
+    release_parser.add_argument(
+        "--master-branch",
+        default="master",
+        metavar="BRANCH",
+        help="Branch to push the bump commit and tag to (default: master).",
+    )
     filter_group = release_parser.add_mutually_exclusive_group()
     filter_group.add_argument(
         "--use-filter",
         dest="use_filter",
         action="store_true",
         default=True,
-        help="(default) Use the changelog-filtered increment so monorepo packages skip "
-        "increments triggered by sibling-only commits.",
+        help=(
+            "Use the changelog-filtered increment so monorepo packages skip increments "
+            "triggered by sibling-only commits (default)."
+        ),
     )
     filter_group.add_argument(
         "--no-filter",
         dest="use_filter",
         action="store_false",
-        help="Skip the increment filter; let `cz bump` pick the increment itself "
-        "(use for single-package repos without `impacts`).",
+        help=(
+            "Skip the increment filter and let 'cz bump' pick the increment itself; "
+            "intended for single-package repos without [tool.commitizen.impacts]."
+        ),
     )
     release_parser.add_argument(
         "bump_args",
         nargs=argparse.REMAINDER,
-        help="Extra args forwarded to `cz bump` (separate with `--`).",
+        help=(
+            "Extra arguments forwarded to 'cz bump'; separate from rt's own flags with "
+            "'--' (e.g. 'rt release -- --dry-run')."
+        ),
     )
     release_parser.set_defaults(func=cmd_release)
 
