@@ -5,7 +5,8 @@ description = "Reusable Commitizen-based release tooling for monorepo and single
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{name = "Reef Technologies", email = "opensource@reef.pl"}]
-license = {text = "MIT"}
+license = {text = "BSD-3-Clause"}
+license-files = ["LICENSE"]
 dependencies = ["commitizen>=4.13", "tomlkit>=0.13"]
 
 [dependency-groups]
