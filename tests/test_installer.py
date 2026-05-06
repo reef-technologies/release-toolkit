@@ -99,6 +99,23 @@ class TestCommitizenConfigFactories:
             impacts=("client",),
         )
 
+    def test_for_single_accepts_version_provider_override(self):
+        assert CommitizenConfig.for_single(version_provider="scm").version_provider == "scm"
+
+    def test_for_single_with_none_keeps_default_provider(self):
+        assert CommitizenConfig.for_single(version_provider=None).version_provider == "pep621"
+
+    def test_for_monorepo_accepts_version_provider_override(self):
+        config = CommitizenConfig.for_monorepo("client", version_provider="scm")
+
+        assert config.version_provider == "scm"
+        assert config.tag_format == "client-v$version"
+        assert config.bump_message == "bump: client $current_version -> $new_version"
+        assert config.impacts == ("client",)
+
+    def test_for_monorepo_with_none_keeps_default_provider(self):
+        assert CommitizenConfig.for_monorepo("client", version_provider=None).version_provider == "pep621"
+
 
 class TestInstallIntoDocument:
     def test_inserts_section_into_fresh_document_for_single(self, empty_pyproject):

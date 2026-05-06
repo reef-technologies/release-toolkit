@@ -67,14 +67,27 @@ class CommitizenConfig:
     impacts: tuple[str, ...] = field(default_factory=tuple)
 
     @classmethod
-    def for_single(cls) -> CommitizenConfig:
-        """Return the default config for a single-package project."""
-        return cls()
+    def for_single(cls, version_provider: str | None = None) -> CommitizenConfig:
+        """Return the default config for a single-package project.
+
+        ``version_provider`` overrides the default (``"pep621"``) when given;
+        the value is written verbatim to ``[tool.commitizen].version_provider``.
+        """
+        if version_provider is None:
+            return cls()
+        return cls(version_provider=version_provider)
 
     @classmethod
-    def for_monorepo(cls, project_name: str) -> CommitizenConfig:
-        """Return the default config for a monorepo package owned by ``project_name``."""
+    def for_monorepo(
+        cls, project_name: str, version_provider: str | None = None
+    ) -> CommitizenConfig:
+        """Return the default config for a monorepo package owned by ``project_name``.
+
+        ``version_provider`` overrides the default (``"pep621"``) when given.
+        """
+        defaults = cls()
         return cls(
+            version_provider=version_provider or defaults.version_provider,
             tag_format=f"{project_name}-v$version",
             bump_message=f"bump: {project_name} $current_version -> $new_version",
             impacts=(project_name,),

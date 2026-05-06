@@ -28,7 +28,7 @@ from release_toolkit.installer import (
 from release_toolkit.release_runner import ReleaseAborted, run_release
 from release_toolkit.workflow_installer import (
     WorkflowConfig,
-    is_release_notify_workflow,
+    is_release_workflow_caller,
     render_workflow,
 )
 
@@ -57,7 +57,7 @@ def cmd_release(args: argparse.Namespace) -> None:
 
 def cmd_init_single(args: argparse.Namespace) -> None:
     """Run ``init single`` for each given ``pyproject.toml`` path."""
-    config = CommitizenConfig.for_single()
+    config = CommitizenConfig.for_single(version_provider=args.version_provider)
     spec = _resolve_release_toolkit_spec()
     exit_code = 0
     for raw_path in args.paths:
@@ -83,9 +83,11 @@ def cmd_init_monorepo(args: argparse.Namespace, parser: argparse.ArgumentParser)
         for i in range(0, len(raw), 2)
     ]
     spec = _resolve_release_toolkit_spec()
+    version_provider = args.version_provider
     exit_code = 0
     for path, name in pairs:
-        toml_ok = _apply_to_file(path, CommitizenConfig.for_monorepo(name), spec)
+        config = CommitizenConfig.for_monorepo(name, version_provider=version_provider)
+        toml_ok = _apply_to_file(path, config, spec)
         if not toml_ok:
             exit_code = 1
             continue
@@ -174,13 +176,13 @@ def _apply_workflow(
     pyproject_path: Path,
     config_factory,
 ) -> bool:
-    """Install the release-notify caller workflow for ``pyproject_path``.
+    """Install the release caller workflow for ``pyproject_path``.
 
     Locates the repo root by walking up looking for ``.git``. When no repo root
     is found, returns ``False`` (hard error). When an existing workflow already
-    references the release-notify reusable workflow (under any file name),
-    skips with INFO. When the target file name is occupied by an unrelated
-    workflow, skips with WARNING (still returns ``True`` - exit 0).
+    calls the release-toolkit reusable workflow (under any file name), skips
+    with INFO. When the target file name is occupied by an unrelated workflow,
+    skips with WARNING (still returns ``True`` - exit 0).
     """
     repo_root = _find_repo_root(pyproject_path.resolve().parent)
     if repo_root is None:
@@ -194,10 +196,10 @@ def _apply_workflow(
     config = config_factory(package_dir)
 
     workflows_dir = repo_root / ".github" / "workflows"
-    existing = _find_existing_release_notify(workflows_dir, config.tag_prefix)
+    existing = _find_existing_release_caller(workflows_dir, config.tag_prefix)
     if existing is not None:
         print(
-            f"INFO: {existing}: release-notify workflow for tag_prefix "
+            f"INFO: {existing}: release workflow for tag_prefix "
             f"'{config.tag_prefix}' already present, skipping"
         )
         return True
@@ -212,7 +214,7 @@ def _apply_workflow(
 
     workflows_dir.mkdir(parents=True, exist_ok=True)
     target.write_text(render_workflow(config))
-    print(f"INFO: {target}: added release-notify caller workflow")
+    print(f"INFO: {target}: added release caller workflow")
     return True
 
 
@@ -266,14 +268,13 @@ def _relative_package_dir(repo_root: Path, pyproject_path: Path) -> str:
     return rel_str if rel_str != "" else "."
 
 
-def _find_existing_release_notify(workflows_dir: Path, tag_prefix: str) -> Path | None:
-    """Scan ``workflows_dir`` for an existing release-notify caller using ``tag_prefix``.
+def _find_existing_release_caller(workflows_dir: Path, tag_prefix: str) -> Path | None:
+    """Scan ``workflows_dir`` for an existing release caller using ``tag_prefix``.
 
-    A match requires both: the file references the reusable
-    ``release-notify.yml`` workflow AND its rendered ``tag_prefix:`` line equals
-    the requested one. This keeps per-package monorepo files independent: a
-    ``release-notify-client.yml`` does not block creation of
-    ``release-notify-service.yml``.
+    A match requires both: the file calls the release-toolkit reusable workflow
+    AND its rendered ``tag_prefix:`` line equals the requested one. This keeps
+    per-package monorepo files independent: a ``release-client.yml`` does not
+    block creation of ``release-service.yml``.
     """
     if not workflows_dir.is_dir():
         return None
@@ -285,7 +286,7 @@ def _find_existing_release_notify(workflows_dir: Path, tag_prefix: str) -> Path 
             content = entry.read_text()
         except OSError:
             continue
-        if is_release_notify_workflow(content) and needle in content:
+        if is_release_workflow_caller(content) and needle in content:
             return entry
     return None
 
@@ -317,6 +318,17 @@ def main() -> None:
             "(PATH may be the file itself or its containing directory)."
         ),
     )
+    single_parser.add_argument(
+        "--version-provider",
+        dest="version_provider",
+        default=None,
+        metavar="PROVIDER",
+        help=(
+            "Override [tool.commitizen].version_provider (default: 'pep621'). "
+            "Any string is accepted and written verbatim. See: "
+            "https://commitizen-tools.github.io/commitizen/config/version_provider/"
+        ),
+    )
     single_parser.add_argument("paths", nargs="+", type=Path, metavar="PATH")
     single_parser.set_defaults(func=cmd_init_single)
 
@@ -325,6 +337,17 @@ def main() -> None:
         help=(
             "Install monorepo config; arguments are PATH NAME pairs "
             "(PATH may be the pyproject.toml file or its containing directory)."
+        ),
+    )
+    monorepo_parser.add_argument(
+        "--version-provider",
+        dest="version_provider",
+        default=None,
+        metavar="PROVIDER",
+        help=(
+            "Override [tool.commitizen].version_provider (default: 'pep621'). "
+            "Any string is accepted and written verbatim. See: "
+            "https://commitizen-tools.github.io/commitizen/config/version_provider/"
         ),
     )
     monorepo_parser.add_argument("args", nargs="+", metavar="PATH NAME")

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from release_toolkit.cli import main
-from release_toolkit.workflow_installer import RELEASE_NOTIFY_USES_REF
+from release_toolkit.workflow_installer import RELEASE_WORKFLOW_USES_REF
 
 EMPTY_PYPROJECT = '[project]\nname = "demo"\nversion = "0.1.0"\n'
 
@@ -213,6 +213,34 @@ class TestInitSingle:
         assert "file not found" in captured.err
         assert "pyproject.toml" in captured.err
 
+    def test_version_provider_override_is_written_verbatim(
+        self, monkeypatch, fresh_path
+    ):
+        code = _run(
+            monkeypatch, "init", "single", "--version-provider", "scm", str(fresh_path)
+        )
+        text = fresh_path.read_text()
+
+        assert code == 0
+        assert 'version_provider = "scm"' in text
+        assert 'version_provider = "pep621"' not in text
+
+    def test_unknown_version_provider_value_is_accepted_verbatim(
+        self, monkeypatch, fresh_path
+    ):
+        code = _run(
+            monkeypatch,
+            "init",
+            "single",
+            "--version-provider",
+            "my-custom-provider",
+            str(fresh_path),
+        )
+        text = fresh_path.read_text()
+
+        assert code == 0
+        assert 'version_provider = "my-custom-provider"' in text
+
 
 class TestInitMonorepo:
     def test_fresh_file_gets_named_tag_format_and_impacts(self, monkeypatch, capsys, fresh_path):
@@ -266,6 +294,31 @@ class TestInitMonorepo:
         assert 'impacts = ["service"]' in p2.read_text()
         assert 'bump_message = "bump: service $current_version -> $new_version"' in p2.read_text()
 
+    def test_version_provider_override_applies_to_all_pairs(
+        self, monkeypatch, tmp_path
+    ):
+        p1 = tmp_path / "client.toml"
+        p2 = tmp_path / "service.toml"
+        p1.write_text(EMPTY_PYPROJECT)
+        p2.write_text(EMPTY_PYPROJECT)
+        code = _run(
+            monkeypatch,
+            "init",
+            "monorepo",
+            "--version-provider",
+            "scm",
+            str(p1),
+            "client",
+            str(p2),
+            "service",
+        )
+
+        assert code == 0
+        assert 'version_provider = "scm"' in p1.read_text()
+        assert 'version_provider = "scm"' in p2.read_text()
+        assert 'version_provider = "pep621"' not in p1.read_text()
+        assert 'version_provider = "pep621"' not in p2.read_text()
+
     def test_monorepo_injects_release_toolkit_dev_dep_into_each_pair(
         self, monkeypatch, tmp_path
     ):
@@ -305,7 +358,7 @@ class TestInitMonorepo:
         assert code == 0
         assert 'tag_format = "client-v$version"' in text
         assert 'impacts = ["client"]' in text
-        assert (tmp_path / ".github" / "workflows" / "release-notify-client.yml").is_file()
+        assert (tmp_path / ".github" / "workflows" / "release-client.yml").is_file()
 
 
 class TestInitParentRequired:
@@ -315,22 +368,22 @@ class TestInitParentRequired:
 
 
 class TestInitWorkflow:
-    def test_single_creates_release_notify_at_repo_root(
+    def test_single_creates_release_caller_at_repo_root(
         self, monkeypatch, capsys, tmp_path, fresh_path
     ):
         code = _run(monkeypatch, "init", "single", str(fresh_path))
         captured = capsys.readouterr()
-        workflow = tmp_path / ".github" / "workflows" / "release-notify.yml"
+        workflow = tmp_path / ".github" / "workflows" / "release.yml"
 
         assert code == 0
         assert workflow.is_file()
         text = workflow.read_text()
-        assert "name: Release notify\n" in text
+        assert "name: Release\n" in text
         assert "      - 'v*'\n" in text
         assert "      package_dir: .\n" in text
         assert "      tag_prefix: v\n" in text
-        assert RELEASE_NOTIFY_USES_REF in text
-        assert "added release-notify caller workflow" in captured.out
+        assert RELEASE_WORKFLOW_USES_REF in text
+        assert "added release caller workflow" in captured.out
 
     def test_monorepo_creates_per_package_workflows(self, monkeypatch, tmp_path):
         client_dir = tmp_path / "packages" / "client"
@@ -353,8 +406,8 @@ class TestInitWorkflow:
         )
 
         assert code == 0
-        client_workflow = tmp_path / ".github" / "workflows" / "release-notify-client.yml"
-        service_workflow = tmp_path / ".github" / "workflows" / "release-notify-service.yml"
+        client_workflow = tmp_path / ".github" / "workflows" / "release-client.yml"
+        service_workflow = tmp_path / ".github" / "workflows" / "release-service.yml"
         assert client_workflow.is_file()
         assert service_workflow.is_file()
         client_text = client_workflow.read_text()
@@ -365,7 +418,7 @@ class TestInitWorkflow:
         assert "      - 'service-v*'\n" in service_text
         assert "      package_dir: packages/service\n" in service_text
 
-    def test_existing_release_notify_under_other_filename_is_skipped(
+    def test_existing_release_caller_under_other_filename_is_skipped(
         self, monkeypatch, capsys, tmp_path, fresh_path
     ):
         workflows = tmp_path / ".github" / "workflows"
@@ -374,7 +427,7 @@ class TestInitWorkflow:
         existing.write_text(
             "jobs:\n"
             "  release:\n"
-            f"    uses: {RELEASE_NOTIFY_USES_REF}\n"
+            f"    uses: {RELEASE_WORKFLOW_USES_REF}\n"
             "    with:\n"
             "      tag_prefix: v\n"
         )
@@ -383,7 +436,7 @@ class TestInitWorkflow:
         captured = capsys.readouterr()
 
         assert code == 0
-        assert not (workflows / "release-notify.yml").exists()
+        assert not (workflows / "release.yml").exists()
         assert "already present, skipping" in captured.out
         assert str(existing) in captured.out
 
@@ -394,10 +447,10 @@ class TestInitWorkflow:
         # must still create a separate service workflow.
         workflows = tmp_path / ".github" / "workflows"
         workflows.mkdir(parents=True)
-        (workflows / "release-notify-client.yml").write_text(
+        (workflows / "release-client.yml").write_text(
             "jobs:\n"
             "  release:\n"
-            f"    uses: {RELEASE_NOTIFY_USES_REF}\n"
+            f"    uses: {RELEASE_WORKFLOW_USES_REF}\n"
             "    with:\n"
             "      tag_prefix: client-v\n"
         )
@@ -411,14 +464,14 @@ class TestInitWorkflow:
         )
 
         assert code == 0
-        assert (workflows / "release-notify-service.yml").is_file()
+        assert (workflows / "release-service.yml").is_file()
 
     def test_unrelated_file_with_target_name_is_skipped_with_warning(
         self, monkeypatch, capsys, tmp_path, fresh_path
     ):
         workflows = tmp_path / ".github" / "workflows"
         workflows.mkdir(parents=True)
-        target = workflows / "release-notify.yml"
+        target = workflows / "release.yml"
         unrelated_content = "name: Something else\non: push\njobs:\n  noop:\n    runs-on: ubuntu-latest\n"
         target.write_text(unrelated_content)
 
@@ -450,7 +503,7 @@ class TestInitWorkflow:
     ):
         _run(monkeypatch, "init", "single", str(fresh_path))
         capsys.readouterr()
-        workflow = tmp_path / ".github" / "workflows" / "release-notify.yml"
+        workflow = tmp_path / ".github" / "workflows" / "release.yml"
         first_text = workflow.read_text()
 
         code = _run(monkeypatch, "init", "single", str(fresh_path))
