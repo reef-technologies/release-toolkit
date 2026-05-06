@@ -10,7 +10,10 @@ only commits tagged with `Impacts: <package>` count toward a package's
 version bump and changelog. In a single-package repo it collapses to plain
 Conventional Commits.
 
-Requires Python ≥ 3.11.
+Requires Python ≥ 3.11 and [`uv`](https://docs.astral.sh/uv/) — `rt release`
+runs `uv sync` / `uv run cz bump`, `rt init` writes `[dependency-groups].dev`
+(PEP 735), and the generated GitHub workflow uses `astral-sh/setup-uv`. Other
+package managers (Poetry, plain pip) are not supported out of the box.
 
 ## Quick start
 
