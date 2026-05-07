@@ -53,3 +53,4 @@ annotated_tag = true
 changelog_file = "CHANGELOG.md"
 update_changelog_on_bump = true
 changelog_merge_prerelease = true
+major_version_zero = true

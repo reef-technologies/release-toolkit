@@ -15,9 +15,11 @@ and whether to write the document back to disk.
 
 from __future__ import annotations
 
+import contextlib
 import re
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
 import tomlkit
 from tomlkit import TOMLDocument
@@ -54,6 +56,12 @@ class CommitizenConfig:
             supported by commitizen.
         impacts: Optional tuple of impact tags. When non-empty, the key is
             emitted; when empty, omitted entirely.
+        major_version_zero: When ``True``, ``major_version_zero = true`` is
+            written into the section so commitizen treats BREAKING CHANGEs
+            as minor bumps (``0.1.0 -> 0.2.0``) instead of major bumps
+            (``0.1.0 -> 1.0.0``). When ``None``, the key is omitted entirely
+            (commitizen default applies). Set by the CLI after detecting the
+            current project version.
     """
 
     name: str = IMPACTS_CZ_NAME
@@ -65,6 +73,7 @@ class CommitizenConfig:
     changelog_merge_prerelease: bool = True
     bump_message: str | None = None
     impacts: tuple[str, ...] = field(default_factory=tuple)
+    major_version_zero: bool | None = None
 
     @classmethod
     def for_single(cls, version_provider: str | None = None) -> CommitizenConfig:
@@ -123,7 +132,8 @@ def render_section(config: CommitizenConfig) -> Table:
     Keys are emitted in a fixed, readable order: ``name``, ``version_provider``,
     ``tag_format``, ``annotated_tag``, ``changelog_file``,
     ``update_changelog_on_bump``, ``changelog_merge_prerelease``, then
-    ``bump_message`` only when set, and ``impacts`` only when non-empty.
+    ``major_version_zero`` only when set, ``bump_message`` only when set, and
+    ``impacts`` only when non-empty.
     """
     table = tomlkit.table()
     table["name"] = config.name
@@ -133,6 +143,8 @@ def render_section(config: CommitizenConfig) -> Table:
     table["changelog_file"] = config.changelog_file
     table["update_changelog_on_bump"] = config.update_changelog_on_bump
     table["changelog_merge_prerelease"] = config.changelog_merge_prerelease
+    if config.major_version_zero is not None:
+        table["major_version_zero"] = config.major_version_zero
     if config.bump_message is not None:
         table["bump_message"] = config.bump_message
     if config.impacts:
@@ -279,3 +291,62 @@ def _append_to_array(array: Array, spec: str) -> None:
         array.add_line(spec)
     else:
         array.append(spec)
+
+
+class VersionZeroState(Enum):
+    """Classification of a project's current version against the ``0.Y.Z`` pre-stable range.
+
+    Drives the decision to insert ``major_version_zero = true`` into the
+    ``[tool.commitizen]`` section and the wording of the matching NEXT STEPS
+    block printed by the CLI.
+    """
+
+    ZERO = "zero"
+    NON_ZERO = "non_zero"
+    UNKNOWN = "unknown"
+
+
+def classify_version_zero(pyproject_path: Path) -> VersionZeroState:
+    """Classify the current project version against the ``0.Y.Z`` range.
+
+    ``pyproject_path`` MUST point at a file whose basename is exactly
+    ``pyproject.toml`` - file-based commitizen providers (``pep621``,
+    ``npm``, ``cargo``, ...) look up their files via ``Path() /
+    "pyproject.toml"`` relative to cwd, so any other name yields
+    :attr:`VersionZeroState.UNKNOWN`. The lookup runs with cwd temporarily
+    switched to ``pyproject_path.parent`` so context-based providers
+    (``scm``) inspect the surrounding git repository.
+
+    Returns ``ZERO`` when the version's leading numeric component is ``0``,
+    ``NON_ZERO`` when it is a positive integer, and ``UNKNOWN`` for any
+    failure (provider raised, version string has no leading integer, etc.).
+    """
+    try:
+        from commitizen.config.factory import create_config
+        from commitizen.providers import get_provider
+    except Exception:
+        return VersionZeroState.UNKNOWN
+
+    try:
+        data = pyproject_path.read_bytes()
+    except OSError:
+        return VersionZeroState.UNKNOWN
+
+    try:
+        config = create_config(data=data, path=pyproject_path)
+    except Exception:
+        return VersionZeroState.UNKNOWN
+
+    try:
+        with contextlib.chdir(pyproject_path.parent):
+            provider = get_provider(config)
+            version = provider.get_version()
+    except Exception:
+        return VersionZeroState.UNKNOWN
+
+    if not isinstance(version, str):
+        return VersionZeroState.UNKNOWN
+    match = _LEADING_MAJOR_RE.match(version)
+    if match is None:
+        return VersionZeroState.UNKNOWN
+    return VersionZeroState.ZERO if int(match.group(1)) == 0 else VersionZeroState.NON_ZERO

@@ -11,9 +11,11 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import cast
 
 import tomlkit
 from tomlkit.exceptions import TOMLKitError
+from tomlkit.items import Table
 
 from release_toolkit.helpers import NO_INCREMENT, find_filtered_increment, load_config
 from release_toolkit.installer import (
@@ -21,6 +23,8 @@ from release_toolkit.installer import (
     CommitizenConfig,
     DevDepStatus,
     InstallStatus,
+    VersionZeroState,
+    classify_version_zero,
     compute_release_toolkit_spec,
     ensure_dev_dependency,
     install_into_document,
@@ -56,13 +60,20 @@ def cmd_release(args: argparse.Namespace) -> None:
 
 
 def cmd_init_single(args: argparse.Namespace) -> None:
-    """Run ``init single`` for each given ``pyproject.toml`` path."""
+    """Run ``init single`` for each given project root directory."""
     config = CommitizenConfig.for_single(version_provider=args.version_provider)
     spec = _resolve_release_toolkit_spec()
     exit_code = 0
+    states: list[VersionZeroState] = []
     for raw_path in args.paths:
-        path = _resolve_pyproject_path(raw_path)
-        toml_ok = _apply_to_file(path, config, spec)
+        if not raw_path.is_dir():
+            print(f"ERROR: {raw_path}: not a directory", file=sys.stderr)
+            exit_code = 1
+            continue
+        path = _pyproject_in_directory(raw_path)
+        toml_ok, state = _apply_to_file(path, config, spec)
+        if state is not None:
+            states.append(state)
         if not toml_ok:
             exit_code = 1
             continue
@@ -70,24 +81,29 @@ def cmd_init_single(args: argparse.Namespace) -> None:
             exit_code = 1
     if exit_code:
         sys.exit(exit_code)
-    _print_slack_next_steps()
+    _print_next_steps(_aggregate_state(states))
 
 
 def cmd_init_monorepo(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
-    """Run ``init monorepo`` for each ``(path, name)`` pair from positional args."""
+    """Run ``init monorepo`` for each ``(directory, name)`` pair from positional args."""
     raw = args.args
     if len(raw) % 2:
         parser.error("monorepo requires PATH NAME pairs (even number of arguments)")
-    pairs = [
-        (_resolve_pyproject_path(Path(raw[i])), raw[i + 1])
-        for i in range(0, len(raw), 2)
-    ]
+    pairs = [(Path(raw[i]), raw[i + 1]) for i in range(0, len(raw), 2)]
     spec = _resolve_release_toolkit_spec()
     version_provider = args.version_provider
     exit_code = 0
-    for path, name in pairs:
+    states: list[VersionZeroState] = []
+    for raw_path, name in pairs:
+        if not raw_path.is_dir():
+            print(f"ERROR: {raw_path}: not a directory", file=sys.stderr)
+            exit_code = 1
+            continue
+        path = _pyproject_in_directory(raw_path)
         config = CommitizenConfig.for_monorepo(name, version_provider=version_provider)
-        toml_ok = _apply_to_file(path, config, spec)
+        toml_ok, state = _apply_to_file(path, config, spec)
+        if state is not None:
+            states.append(state)
         if not toml_ok:
             exit_code = 1
             continue
@@ -95,35 +111,49 @@ def cmd_init_monorepo(args: argparse.Namespace, parser: argparse.ArgumentParser)
             exit_code = 1
     if exit_code:
         sys.exit(exit_code)
-    _print_slack_next_steps()
+    _print_next_steps(_aggregate_state(states))
 
 
-def _apply_to_file(path: Path, config: CommitizenConfig, release_toolkit_spec: str) -> bool:
+def _apply_to_file(
+    path: Path, config: CommitizenConfig, release_toolkit_spec: str
+) -> tuple[bool, VersionZeroState | None]:
     """Apply ``install_into_document`` and ``ensure_dev_dependency`` to ``path``.
 
     Prints one status line per step (commitizen section + dev-dependency
-    entry). Returns ``True`` for INSTALLED / ALREADY_INSTALLED / FOREIGN_NAME
-    outcomes (warnings included). Returns ``False`` only on hard errors (file
-    missing, TOML parse failure) so the caller can aggregate a non-zero exit
-    code. The dev-dependency step runs only when the commitizen step did not
-    return ``FOREIGN_NAME`` (we leave foreign-configured files alone).
+    entry). Returns ``(True, state)`` for INSTALLED / ALREADY_INSTALLED /
+    FOREIGN_NAME outcomes; ``state`` is the detected
+    :class:`VersionZeroState` (or ``None`` when classification did not run,
+    e.g. for FOREIGN_NAME). Returns ``(False, None)`` only on hard errors
+    (file missing, TOML parse failure) so the caller can aggregate a
+    non-zero exit code. The dev-dependency step runs only when the
+    commitizen step did not return ``FOREIGN_NAME`` (we leave
+    foreign-configured files alone).
+
+    When the commitizen section was just installed, the freshly inserted
+    section is flushed to disk **before** classification - this lets the
+    active ``version_provider`` (including context-aware ones like ``scm``)
+    inspect the real project state rather than a sandbox copy. If the
+    project classifies as :attr:`VersionZeroState.ZERO`, the file is
+    rewritten once more with ``major_version_zero = true`` appended.
     """
     try:
         text = path.read_text()
     except FileNotFoundError:
         print(f"ERROR: {path}: file not found", file=sys.stderr)
-        return False
+        return False, None
     try:
         doc = tomlkit.parse(text)
     except TOMLKitError as exc:
         print(f"ERROR: {path}: cannot parse TOML ({exc})", file=sys.stderr)
-        return False
+        return False, None
 
     cz_result = install_into_document(doc, config)
+    state: VersionZeroState | None = None
     document_changed = False
     match cz_result.status:
         case InstallStatus.INSTALLED:
             print(f"INFO: {path}: added default [tool.commitizen] section")
+            path.write_text(tomlkit.dumps(doc))
             document_changed = True
         case InstallStatus.ALREADY_INSTALLED:
             print(f"INFO: {path}: already installed, skipping")
@@ -135,6 +165,19 @@ def _apply_to_file(path: Path, config: CommitizenConfig, release_toolkit_spec: s
             )
 
     if cz_result.status is not InstallStatus.FOREIGN_NAME:
+        state = classify_version_zero(path)
+        if state is VersionZeroState.UNKNOWN:
+            print(
+                f"WARNING: {path}: could not determine current project version; "
+                "major_version_zero was not set",
+                file=sys.stderr,
+            )
+        if cz_result.status is InstallStatus.INSTALLED and state is VersionZeroState.ZERO:
+            cast(Table, cast(Table, doc["tool"])["commitizen"])["major_version_zero"] = True
+            print(
+                f"INFO: {path}: detected 0.Y.Z version, set major_version_zero = true"
+            )
+
         dev_result = ensure_dev_dependency(doc, release_toolkit_spec, RELEASE_TOOLKIT_PACKAGE)
         if dev_result.status is DevDepStatus.ADDED:
             print(f"INFO: {path}: added '{dev_result.spec_written}' to [dependency-groups].dev")
@@ -144,9 +187,9 @@ def _apply_to_file(path: Path, config: CommitizenConfig, release_toolkit_spec: s
                 f"INFO: {path}: release-toolkit already present in [dependency-groups].dev, skipping"
             )
 
-    if document_changed:
-        path.write_text(tomlkit.dumps(doc))
-    return True
+        if document_changed:
+            path.write_text(tomlkit.dumps(doc))
+    return True, state
 
 
 def _resolve_release_toolkit_spec() -> str:
@@ -223,8 +266,17 @@ def _make_single_workflow_config(package_dir: str) -> WorkflowConfig:
     return WorkflowConfig.for_single(package_dir)
 
 
-def _print_slack_next_steps() -> None:
-    """Print follow-up reminders: Slack setup and version_provider customisation."""
+def _print_next_steps(state: VersionZeroState | None) -> None:
+    """Print follow-up reminders: Slack setup, version_provider, major_version_zero.
+
+    The third block's wording adapts to ``state``:
+      - ``ZERO``: explain that ``major_version_zero = true`` was inserted and
+        how to remove it when the project graduates to ``1.0.0``.
+      - ``NON_ZERO``: explain that the flag is intentionally absent so
+        BREAKING CHANGEs bump the major component.
+      - ``UNKNOWN`` (or ``None``): explain that the version could not be
+        detected and how to set the flag manually if the project is 0.Y.Z.
+    """
     print()
     print("NEXT STEPS - to enable Slack notifications:")
     print("  1. Create a Slack incoming webhook URL")
@@ -238,6 +290,50 @@ def _print_slack_next_steps() -> None:
     print("  pyproject.toml). To version from another source (git tags, package.json,")
     print("  Cargo.toml, ...), change [tool.commitizen].version_provider — see:")
     print("  https://commitizen-tools.github.io/commitizen/config/version_provider/#built-in-providers")
+    print()
+    print("NEXT STEPS - major_version_zero:")
+    if state is VersionZeroState.ZERO:
+        print("  Detected a 0.Y.Z version: 'major_version_zero = true' was added to")
+        print("  [tool.commitizen]. While that flag is set, BREAKING CHANGE commits bump")
+        print("  the minor component (e.g. 0.1.0 -> 0.2.0) instead of the major. To")
+        print("  graduate to 1.0.0, first remove the 'major_version_zero' line from")
+        print("  [tool.commitizen] in the same commit that introduces the BREAKING CHANGE")
+        print("  - then 'rt release' will bump 0.x.y -> 1.0.0.")
+    elif state is VersionZeroState.NON_ZERO:
+        print("  Project is already >= 1.0.0; 'major_version_zero' was intentionally not")
+        print("  added so BREAKING CHANGE commits bump the major component (e.g. 1.2.3 ->")
+        print("  2.0.0). If you ever restart the project from 0.x and want minor-bump")
+        print("  semantics for breaking changes, add 'major_version_zero = true' to")
+        print("  [tool.commitizen] manually.")
+    else:
+        print("  Could not determine the current project version, so")
+        print("  'major_version_zero' was NOT added. If your project is 0.Y.Z and you")
+        print("  want BREAKING CHANGE commits to bump the minor component (0.1.0 ->")
+        print("  0.2.0) rather than jump straight to 1.0.0, add")
+        print("  'major_version_zero = true' to [tool.commitizen] manually. When you are")
+        print("  later ready to graduate to 1.0.0, remove that line in the same commit")
+        print("  that introduces the BREAKING CHANGE.")
+
+
+def _aggregate_state(states: list[VersionZeroState]) -> VersionZeroState | None:
+    """Pick the worst-case state to drive the NEXT STEPS wording.
+
+    Priority is ``ZERO > UNKNOWN > NON_ZERO`` so that:
+      - any 0.Y.Z package surfaces the graduation-to-1.0.0 instructions,
+      - any unknown surfaces the manual-flag instructions,
+      - the silent NON_ZERO message wins only when every classified package
+        is already past 1.0.0.
+
+    Returns ``None`` when ``states`` is empty (nothing was classified -
+    e.g. all FOREIGN_NAME); the caller treats that as ``UNKNOWN``.
+    """
+    if not states:
+        return None
+    if VersionZeroState.ZERO in states:
+        return VersionZeroState.ZERO
+    if VersionZeroState.UNKNOWN in states:
+        return VersionZeroState.UNKNOWN
+    return VersionZeroState.NON_ZERO
 
 
 def _find_repo_root(start: Path) -> Path | None:
@@ -248,16 +344,13 @@ def _find_repo_root(start: Path) -> Path | None:
     return None
 
 
-def _resolve_pyproject_path(path: Path) -> Path:
-    """Return the ``pyproject.toml`` file path for a user-supplied ``path``.
+def _pyproject_in_directory(directory: Path) -> Path:
+    """Return ``<directory>/pyproject.toml``.
 
-    When ``path`` is an existing directory, append ``pyproject.toml``. Otherwise
-    return ``path`` unchanged so existing error messages (file not found, TOML
-    parse failure) are emitted by the downstream apply step.
+    The caller must ensure ``directory`` is an existing directory; this
+    helper only joins the path and does not perform any filesystem checks.
     """
-    if path.is_dir():
-        return path / "pyproject.toml"
-    return path
+    return directory / "pyproject.toml"
 
 
 def _relative_package_dir(repo_root: Path, pyproject_path: Path) -> str:
@@ -328,13 +421,14 @@ def main() -> None:
         "init",
         help="Bootstrap [tool.commitizen] config, dev-dependency entry, and GitHub release workflow.",
         description=(
-            "Configure a repository for release-toolkit. For each target pyproject.toml, "
-            "init (1) writes a default [tool.commitizen] block with name='impacts_cz', "
-            "(2) adds release-toolkit to the [dependency-groups].dev list, and (3) "
-            "installs a GitHub release-caller workflow under .github/workflows/. Use "
-            "'single' for one-package repos and 'monorepo' for multi-package repos where "
-            "each package needs its own tag prefix and workflow file. All steps are "
-            "idempotent - re-running on an already-configured project skips with INFO."
+            "Configure a repository for release-toolkit. Each target is a project root "
+            "directory containing a pyproject.toml. For each target, init (1) writes a "
+            "default [tool.commitizen] block with name='impacts_cz', (2) adds "
+            "release-toolkit to the [dependency-groups].dev list, and (3) installs a "
+            "GitHub release-caller workflow under .github/workflows/. Use 'single' for "
+            "one-package repos and 'monorepo' for multi-package repos where each package "
+            "needs its own tag prefix and workflow file. All steps are idempotent - "
+            "re-running on an already-configured project skips with INFO."
         ),
     )
     init_subparsers = init_parser.add_subparsers(dest="init_command", required=True)
@@ -343,8 +437,8 @@ def main() -> None:
         "single",
         help="Configure a single-package repo (one pyproject.toml, one workflow).",
         description=(
-            "Configure one or more single-package projects. Each PATH may be a "
-            "pyproject.toml file or a directory containing one. For each target, writes "
+            "Configure one or more single-package projects. Each PATH is a project root "
+            "directory containing a pyproject.toml. For each target, writes "
             "[tool.commitizen] (name='impacts_cz', tag_prefix='v'), adds release-toolkit "
             "to [dependency-groups].dev, and installs .github/workflows/release.yml. "
             "Idempotent: already-configured targets are reported with INFO and skipped; "
@@ -367,7 +461,7 @@ def main() -> None:
         nargs="+",
         type=Path,
         metavar="PATH",
-        help="One or more pyproject.toml files, or directories containing one.",
+        help="One or more project root directories (each must contain a pyproject.toml).",
     )
     single_parser.set_defaults(func=cmd_init_single)
 
@@ -376,7 +470,7 @@ def main() -> None:
         help="Configure a multi-package repo: one PATH NAME pair per package.",
         description=(
             "Configure each package in a monorepo. Arguments come in PATH NAME pairs: "
-            "PATH points at a package's pyproject.toml (or its directory); NAME is the "
+            "PATH is a project root directory containing a pyproject.toml; NAME is the "
             "package identifier used as the Commitizen name and the tag prefix (e.g. "
             "NAME=backend yields tags 'backend-vX.Y.Z' and workflow file "
             "release-backend.yml). For each pair, writes [tool.commitizen], adds "
@@ -400,8 +494,9 @@ def main() -> None:
         nargs="+",
         metavar="PATH NAME",
         help=(
-            "PATH NAME pairs: each PATH is a pyproject.toml (or its directory); each "
-            "NAME is the package identifier used for the tag prefix and workflow file name."
+            "PATH NAME pairs: each PATH is a project root directory containing a "
+            "pyproject.toml; each NAME is the package identifier used for the tag prefix "
+            "and workflow file name."
         ),
     )
     monorepo_parser.set_defaults(func=lambda a: cmd_init_monorepo(a, monorepo_parser))

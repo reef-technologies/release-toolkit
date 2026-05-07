@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -13,9 +14,12 @@ from release_toolkit.installer import (
     DevDepStatus,
     InstallResult,
     InstallStatus,
+    VersionZeroState,
+    classify_version_zero,
     compute_release_toolkit_spec,
     ensure_dev_dependency,
     install_into_document,
+    render_section,
 )
 
 
@@ -332,3 +336,76 @@ class TestEnsureDevDependency:
         assert '"pytest>=8",' in dumped
         assert '"release-toolkit>=0.2.0,<1"' in dumped
         assert "dev = [\n" in dumped
+
+
+class TestRenderSectionMajorVersionZero:
+    def test_none_omits_key(self):
+        config = CommitizenConfig(major_version_zero=None)
+        dumped = tomlkit.dumps(render_section(config))
+
+        assert "major_version_zero" not in dumped
+
+    def test_true_writes_true(self):
+        config = CommitizenConfig(major_version_zero=True)
+        dumped = tomlkit.dumps(render_section(config))
+
+        assert "major_version_zero = true" in dumped
+
+    def test_false_writes_false(self):
+        config = CommitizenConfig(major_version_zero=False)
+        dumped = tomlkit.dumps(render_section(config))
+
+        assert "major_version_zero = false" in dumped
+
+    def test_appears_after_changelog_merge_prerelease_and_before_bump_message(self):
+        config = CommitizenConfig(
+            major_version_zero=True,
+            bump_message="bump: $current_version -> $new_version",
+        )
+        dumped = tomlkit.dumps(render_section(config))
+
+        i_merge = dumped.index("changelog_merge_prerelease")
+        i_mvz = dumped.index("major_version_zero")
+        i_bump = dumped.index("bump_message")
+        assert i_merge < i_mvz < i_bump
+
+
+class TestClassifyVersionZero:
+    def test_zero_for_0_y_z(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "demo"\nversion = "0.3.5"\n'
+            '[tool.commitizen]\nversion_provider = "pep621"\n'
+        )
+
+        assert classify_version_zero(pyproject) is VersionZeroState.ZERO
+
+    def test_non_zero_for_1_y_z(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "demo"\nversion = "1.2.3"\n'
+            '[tool.commitizen]\nversion_provider = "pep621"\n'
+        )
+
+        assert classify_version_zero(pyproject) is VersionZeroState.NON_ZERO
+
+    def test_non_zero_for_two_digit_major(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "demo"\nversion = "10.0.0"\n'
+            '[tool.commitizen]\nversion_provider = "pep621"\n'
+        )
+
+        assert classify_version_zero(pyproject) is VersionZeroState.NON_ZERO
+
+    def test_unknown_when_project_version_missing(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "demo"\n'
+            '[tool.commitizen]\nversion_provider = "pep621"\n'
+        )
+
+        assert classify_version_zero(pyproject) is VersionZeroState.UNKNOWN
+
+    def test_unknown_when_file_missing(self, tmp_path: Path):
+        assert classify_version_zero(tmp_path / "nope.toml") is VersionZeroState.UNKNOWN
