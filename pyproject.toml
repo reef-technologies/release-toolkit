@@ -1,6 +1,6 @@
 [project]
 name = "release-toolkit"
-version = "0.2.1"
+version = "0.3.0"
 description = "Reusable Commitizen-based release tooling for monorepo and single-package projects"
 readme = "README.md"
 requires-python = ">=3.11"

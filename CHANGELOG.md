@@ -1,3 +1,9 @@
+## v0.3.0 (2026-05-07)
+
+### Feat
+
+- **release**: require --force to release from a non-master branch
+
 ## v0.2.1 (2026-05-07)
 
 ### Fix
