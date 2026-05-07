@@ -52,6 +52,7 @@ def cmd_release(args: argparse.Namespace) -> None:
         run_release(
             master_branch=args.master_branch,
             use_filter=args.use_filter,
+            force=args.force,
             bump_args=tuple(bump_args),
         )
     except ReleaseAborted as exc:
@@ -508,15 +509,16 @@ def main() -> None:
             "Run the standard release flow end-to-end: sync the environment with uv,\n"
             "run the project's checks, invoke 'cz bump' with the changelog-filtered\n"
             "increment, then push the bump commit and the new tag to --master-branch.\n"
-            "Aborts (exit 1) if the working tree is dirty or there are no releasable\n"
-            "commits. When run from a branch other than --master-branch, prints a\n"
-            "warning and prompts for confirmation rather than aborting."
+            "Aborts (exit 1) if the working tree is dirty, there are no releasable\n"
+            "commits, or the current branch differs from --master-branch (use --force\n"
+            "to release from a non-master branch anyway)."
         ),
         epilog=(
             "Examples:\n"
             "  rt release                              # default flow on master\n"
             "  rt release -- --dry-run                 # forward --dry-run to cz bump\n"
             "  rt release --master-branch main --no-filter\n"
+            "  rt release --force                      # release from a non-master branch\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -525,6 +527,15 @@ def main() -> None:
         default="master",
         metavar="BRANCH",
         help="Branch to push the bump commit and tag to (default: master).",
+    )
+    release_parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help=(
+            "Allow releasing from a branch other than --master-branch. Without this "
+            "flag, 'rt release' aborts when the current branch does not match."
+        ),
     )
     filter_group = release_parser.add_mutually_exclusive_group()
     filter_group.add_argument(

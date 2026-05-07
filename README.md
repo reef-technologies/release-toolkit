@@ -89,7 +89,8 @@ Drives the full flow from one command, run from the package directory:
 
 1. `uv sync --group dev`
 2. refuses a dirty worktree
-3. fast-forwards `--master-branch` (default `master`); warns on other branches
+3. fast-forwards `--master-branch` (default `master`); aborts on other
+   branches unless `--force` is passed
 4. computes the filtered increment, aborts if `NONE` (skip with `--no-filter`)
 5. shows `cz bump --dry-run` and asks `[y/N]`
 6. runs `cz bump`, then `git push --follow-tags`

@@ -35,7 +35,7 @@ class TestReleaseFlags:
 
         assert code == 0
         assert capture_run_release == [
-            {"master_branch": "master", "use_filter": True, "bump_args": ()}
+            {"master_branch": "master", "use_filter": True, "force": False, "bump_args": ()}
         ]
 
     def test_no_filter(self, monkeypatch, capture_run_release):
@@ -43,7 +43,7 @@ class TestReleaseFlags:
 
         assert code == 0
         assert capture_run_release == [
-            {"master_branch": "master", "use_filter": False, "bump_args": ()}
+            {"master_branch": "master", "use_filter": False, "force": False, "bump_args": ()}
         ]
 
     def test_master_branch_override(self, monkeypatch, capture_run_release):
@@ -51,7 +51,15 @@ class TestReleaseFlags:
 
         assert code == 0
         assert capture_run_release == [
-            {"master_branch": "main", "use_filter": True, "bump_args": ()}
+            {"master_branch": "main", "use_filter": True, "force": False, "bump_args": ()}
+        ]
+
+    def test_force(self, monkeypatch, capture_run_release):
+        code = _run(monkeypatch, "release", "--force")
+
+        assert code == 0
+        assert capture_run_release == [
+            {"master_branch": "master", "use_filter": True, "force": True, "bump_args": ()}
         ]
 
     def test_forwards_bump_args_after_separator(self, monkeypatch, capture_run_release):
@@ -62,6 +70,7 @@ class TestReleaseFlags:
             {
                 "master_branch": "master",
                 "use_filter": True,
+                "force": False,
                 "bump_args": ("--prerelease", "beta"),
             }
         ]

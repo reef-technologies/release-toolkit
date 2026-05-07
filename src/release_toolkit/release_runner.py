@@ -22,6 +22,7 @@ def run_release(
     *,
     master_branch: str = "master",
     use_filter: bool = True,
+    force: bool = False,
     sync_args: Sequence[str] = ("--group", "dev"),
     bump_args: Sequence[str] = (),
 ) -> None:
@@ -33,12 +34,16 @@ def run_release(
             ``impacts`` filter so that monorepo packages skip increments
             triggered by sibling-only commits. Set to False for
             single-package repos that do not configure ``impacts``.
+        force: When True, allow releasing from a branch other than
+            ``master_branch``. When False (default), running from a
+            non-master branch raises :class:`ReleaseAborted`.
         sync_args: Extra args for ``uv sync``. Defaults to ``("--group", "dev")``.
         bump_args: Extra args forwarded to ``cz bump`` (and its dry-run preview).
 
     Raises:
         ReleaseAborted: When a precondition fails (dirty worktree, nothing to
-            release) or the user declines the confirmation prompt.
+            release, releasing from a non-master branch without ``force``)
+            or the user declines the confirmation prompt.
     """
     subprocess.run(["uv", "sync", *sync_args], check=True)
 
@@ -53,6 +58,11 @@ def run_release(
     ).stdout.strip()
     if branch == master_branch:
         subprocess.run(["git", "pull", "--ff-only", "origin", master_branch], check=True)
+    elif not force:
+        raise ReleaseAborted(
+            f"Refusing to release from {branch or 'detached HEAD'} instead of "
+            f"{master_branch}. Pass --force to release from a non-master branch."
+        )
     else:
         print(
             f"WARNING: releasing from {branch or 'detached HEAD'} instead of {master_branch}.",
