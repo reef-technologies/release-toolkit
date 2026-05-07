@@ -1,3 +1,9 @@
+## v0.2.1 (2026-05-07)
+
+### Fix
+
+- pin reusable release-notify workflow to v0.2.0
+
 ## v0.2.0 (2026-05-07)
 
 ### BREAKING CHANGE
