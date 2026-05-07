@@ -44,7 +44,7 @@ jobs:
 
   release:
     needs: pypi-publish
-    uses: reef-technologies/release-toolkit/.github/workflows/release-notify.yml@v1
+    uses: reef-technologies/release-toolkit/.github/workflows/release-notify.yml@v0.2.0
     with:
       package_dir: .
       tag_prefix: v

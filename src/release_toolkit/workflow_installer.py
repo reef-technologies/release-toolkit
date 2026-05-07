@@ -19,7 +19,7 @@ from enum import Enum
 RELEASE_WORKFLOW_USES_PREFIX = (
     "reef-technologies/release-toolkit/.github/workflows/release-notify.yml@"
 )
-RELEASE_WORKFLOW_USES_REF = f"{RELEASE_WORKFLOW_USES_PREFIX}v1"
+RELEASE_WORKFLOW_USES_REF = f"{RELEASE_WORKFLOW_USES_PREFIX}v0.2.0"
 
 
 @dataclass(frozen=True)
