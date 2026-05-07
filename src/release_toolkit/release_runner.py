@@ -70,10 +70,9 @@ def run_release(
     dry_run = subprocess.run(
         ["uv", "run", "cz", "bump", "--dry-run", *extra_bump_args],
         check=True,
-        capture_output=True,
+        # capture_output=True,
         text=True,
     )
-    print(dry_run.stdout)
 
     confirmation_prompt = "Create release commit and tag, then push them? [y/N] "
     if branch != master_branch:
