@@ -47,7 +47,7 @@ testpaths = ["tests"]
 
 [tool.commitizen]
 name = "impacts_cz"
-version_provider = "pep621"
+version_provider = "uv"
 tag_format = "v$version"
 annotated_tag = true
 changelog_file = "CHANGELOG.md"
