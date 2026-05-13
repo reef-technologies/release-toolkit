@@ -53,6 +53,7 @@ def cmd_release(args: argparse.Namespace) -> None:
             master_branch=args.master_branch,
             use_filter=args.use_filter,
             force=args.force,
+            no_push=args.no_push,
             bump_args=tuple(bump_args),
         )
     except ReleaseAborted as exc:
@@ -519,6 +520,7 @@ def main() -> None:
             "  rt release -- --dry-run                 # forward --dry-run to cz bump\n"
             "  rt release --master-branch main --no-filter\n"
             "  rt release --force                      # release from a non-master branch\n"
+            "  rt release --no-push                    # build the bump locally, push by hand\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -535,6 +537,17 @@ def main() -> None:
         help=(
             "Allow releasing from a branch other than --master-branch. Without this "
             "flag, 'rt release' aborts when the current branch does not match."
+        ),
+    )
+    release_parser.add_argument(
+        "--no-push",
+        dest="no_push",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip the final 'git push' step. The bump commit and tag are still "
+            "created locally; the command prints the exact 'git push' invocation "
+            "to run manually afterwards."
         ),
     )
     filter_group = release_parser.add_mutually_exclusive_group()

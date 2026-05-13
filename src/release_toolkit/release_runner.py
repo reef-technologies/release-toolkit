@@ -23,6 +23,7 @@ def run_release(
     master_branch: str = "master",
     use_filter: bool = True,
     force: bool = False,
+    no_push: bool = False,
     sync_args: Sequence[str] = ("--group", "dev"),
     bump_args: Sequence[str] = (),
 ) -> None:
@@ -37,6 +38,9 @@ def run_release(
         force: When True, allow releasing from a branch other than
             ``master_branch``. When False (default), running from a
             non-master branch raises :class:`ReleaseAborted`.
+        no_push: When True, skip the final ``git push`` step. The bump
+            commit and tag are still created locally; the function prints
+            the exact ``git push`` invocation needed to publish them.
         sync_args: Extra args for ``uv sync``. Defaults to ``("--group", "dev")``.
         bump_args: Extra args forwarded to ``cz bump`` (and its dry-run preview).
 
@@ -94,6 +98,13 @@ def run_release(
         raise ReleaseAborted("Aborted by user")
 
     subprocess.run(["uv", "run", "cz", "bump", *extra_bump_args], check=True)
+    if no_push:
+        print(
+            "Skipping git push (--no-push). Push the bump commit and tag manually with:\n"
+            "  git push origin HEAD --follow-tags",
+            file=sys.stderr,
+        )
+        return
     subprocess.run(["git", "push", "origin", "HEAD", "--follow-tags"], check=True)
 
 
