@@ -54,7 +54,7 @@ class TestRenderWorkflow:
     def test_secrets_block_uses_double_dollar_brace_for_actions_template(self):
         text = render_workflow(WorkflowConfig.for_single())
 
-        assert "SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}" in text
+        assert "SLACK_NOTIFICATION_WEBHOOK_URL: ${{ secrets.SLACK_NOTIFICATION_WEBHOOK_URL }}" in text
 
     def test_rendered_workflow_has_no_inline_disable_slack_comment(self):
         text = render_workflow(WorkflowConfig.for_single())

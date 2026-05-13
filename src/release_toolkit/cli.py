@@ -284,7 +284,7 @@ def _print_next_steps(state: VersionZeroState | None) -> None:
     print("  1. Create a Slack incoming webhook URL")
     print("     (https://api.slack.com/messaging/webhooks).")
     print("  2. In your GitHub repo: Settings -> Secrets and variables -> Actions,")
-    print("     add a repository secret named SLACK_WEBHOOK_URL with that URL.")
+    print("     add a repository secret named SLACK_NOTIFICATION_WEBHOOK_URL with that URL.")
     print("Without the secret, the release workflow still succeeds; Slack is just skipped.")
     print()
     print("NEXT STEPS - version source:")

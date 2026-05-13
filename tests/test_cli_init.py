@@ -527,7 +527,7 @@ class TestInitNextSteps:
 
         assert code == 0
         assert "NEXT STEPS" in captured.out
-        assert "SLACK_WEBHOOK_URL" in captured.out
+        assert "SLACK_NOTIFICATION_WEBHOOK_URL" in captured.out
 
     def test_monorepo_prints_slack_next_steps_on_success(
         self, monkeypatch, capsys, fresh_path
@@ -537,7 +537,7 @@ class TestInitNextSteps:
 
         assert code == 0
         assert "NEXT STEPS" in captured.out
-        assert "SLACK_WEBHOOK_URL" in captured.out
+        assert "SLACK_NOTIFICATION_WEBHOOK_URL" in captured.out
 
     def test_single_prints_version_provider_next_steps_on_success(
         self, monkeypatch, capsys, fresh_path

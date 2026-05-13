@@ -5,10 +5,9 @@ the repo root, scan ``.github/workflows`` themselves, hand the file content to
 :func:`is_release_workflow_caller`, and write whatever :func:`render_workflow`
 returns. The same separation as :mod:`release_toolkit.installer`.
 
-The reusable workflow upstream is still named ``release-notify.yml@v1`` for
-backwards compatibility (it is a versioned external resource), even though the
-locally-generated caller files are named ``release.yml`` /
-``release-{name}.yml``.
+The reusable workflow upstream is named ``make-github-release.yml`` (a
+versioned external resource), even though the locally-generated caller files
+are named ``release.yml`` / ``release-{name}.yml``.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 RELEASE_WORKFLOW_USES_PREFIX = (
-    "reef-technologies/release-toolkit/.github/workflows/release-notify.yml@"
+    "reef-technologies/release-toolkit/.github/workflows/make-github-release.yml@"
 )
 RELEASE_WORKFLOW_USES_REF = f"{RELEASE_WORKFLOW_USES_PREFIX}v0.2.0"
 
@@ -95,7 +94,7 @@ jobs:
       tag_prefix: {config.tag_prefix}
       python_version: '3.11'
     secrets:
-      SLACK_WEBHOOK_URL: ${{{{ secrets.SLACK_WEBHOOK_URL }}}}
+      SLACK_NOTIFICATION_WEBHOOK_URL: ${{{{ secrets.SLACK_NOTIFICATION_WEBHOOK_URL }}}}
     permissions:
       contents: write
 """

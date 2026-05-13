@@ -1,19 +1,19 @@
-name: Release notify (reusable)
+name: Make GitHub release (reusable)
 
 # Reusable workflow: creates a GitHub Release with notes from `cz changelog`
-# and, when a SLACK_WEBHOOK_URL secret is provided, posts to Slack.
+# and, when a SLACK_NOTIFICATION_WEBHOOK_URL secret is provided, posts to Slack.
 #
 # Caller example:
 #
 #   jobs:
-#     release-notify:
-#       uses: your-org/release-toolkit/.github/workflows/release-notify.yml@v1
+#     make-github-release:
+#       uses: reef-technologies/release-toolkit/.github/workflows/make-github-release.yml@v1
 #       with:
 #         package_dir: pylon_client
 #         tag_prefix: client-v
 #         python_version: '3.11'
 #       secrets:
-#         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}  # optional
+#         SLACK_NOTIFICATION_WEBHOOK_URL: ${{ secrets.SLACK_NOTIFICATION_WEBHOOK_URL }}  # optional
 
 on:
   workflow_call:
@@ -37,7 +37,7 @@ on:
         type: string
         default: 'Released'
     secrets:
-      SLACK_WEBHOOK_URL:
+      SLACK_NOTIFICATION_WEBHOOK_URL:
         description: Optional Slack incoming-webhook URL. When omitted, Slack notification is skipped.
         required: false
 
@@ -86,20 +86,20 @@ jobs:
       - name: Check Slack webhook availability
         id: probe
         env:
-          WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          WEBHOOK: ${{ secrets.SLACK_NOTIFICATION_WEBHOOK_URL }}
         run: |
           if [ -n "$WEBHOOK" ]; then
             echo "send=true" >> "$GITHUB_OUTPUT"
           else
             echo "send=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::SLACK_WEBHOOK_URL not provided; skipping Slack notification."
+            echo "::notice::SLACK_NOTIFICATION_WEBHOOK_URL not provided; skipping Slack notification."
           fi
 
       - name: Send to Slack
         if: ${{ steps.probe.outputs.send == 'true' }}
         uses: slackapi/slack-github-action@v2.0.0
         with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook: ${{ secrets.SLACK_NOTIFICATION_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload: |
             {

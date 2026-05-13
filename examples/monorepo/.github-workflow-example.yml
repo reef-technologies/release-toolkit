@@ -11,12 +11,12 @@ permissions:
 
 jobs:
   release:
-    uses: your-org/release-toolkit/.github/workflows/release-notify.yml@v1
+    uses: your-org/release-toolkit/.github/workflows/make-github-release.yml@v1
     with:
       package_dir: pylon_client
       tag_prefix: client-v
       python_version: '3.11'
     secrets:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}  # omit this line to disable Slack
+      SLACK_NOTIFICATION_WEBHOOK_URL: ${{ secrets.SLACK_NOTIFICATION_WEBHOOK_URL }}  # omit this line to disable Slack
     permissions:
       contents: write

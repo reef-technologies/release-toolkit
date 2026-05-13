@@ -159,7 +159,7 @@ Tune by hand afterwards if needed:
 
 ## GitHub building blocks
 
-### `.github/workflows/release-notify.yml`
+### `.github/workflows/make-github-release.yml`
 
 Reusable workflow. Triggered on a release tag push; generates notes from
 `cz changelog`, creates a GitHub Release, optionally posts to Slack. The
@@ -177,13 +177,13 @@ permissions:
 
 jobs:
   release:
-    uses: your-org/release-toolkit/.github/workflows/release-notify.yml@v1
+    uses: your-org/release-toolkit/.github/workflows/make-github-release.yml@v1
     with:
       package_dir: pylon_client
       tag_prefix: client-v
       python_version: '3.11'
     secrets:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}  # omit to disable
+      SLACK_NOTIFICATION_WEBHOOK_URL: ${{ secrets.SLACK_NOTIFICATION_WEBHOOK_URL }}  # omit to disable
     permissions:
       contents: write
 ```
@@ -195,7 +195,7 @@ jobs:
 | `python_version` | no | `3.11` | Python used by `cz changelog` |
 | `slack_message_prefix` | no | `Released` | prefix for the Slack message |
 
-Slack is fully optional: provide `SLACK_WEBHOOK_URL` to enable, omit to
+Slack is fully optional: provide `SLACK_NOTIFICATION_WEBHOOK_URL` to enable, omit to
 disable. No extra plugin to install.
 
 ### `.github/actions/setup-python-env`
@@ -232,7 +232,7 @@ src/release_toolkit/
     release_runner.py       # run_release (subprocess orchestration)
 github/
     actions/setup-python-env/
-    workflows/release-notify.yml
+    workflows/make-github-release.yml
 ```
 
 The plugin is registered through the `commitizen.plugin` entry point in
